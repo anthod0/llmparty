@@ -35,6 +35,7 @@ async fn unsubmitted_failure_facts_fail_once_cleanup_once_and_never_start_a_chil
             WorkflowScheduler::with_services(pool, sessions.clone(), exits.clone(), pontia_home);
         scheduler.start("wf_failure").await.expect("start workflow");
 
+        events.publish("session_root", EventType::TurnStarted).await;
         events.publish("session_root", event_type).await;
         events.publish("session_root", event_type).await;
         wait_for_state(&repository, "wf_failure", "failed").await;

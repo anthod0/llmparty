@@ -1,3 +1,5 @@
+mod interruption;
+
 use std::fs;
 
 use axum::{
@@ -42,7 +44,7 @@ async fn seed_requester(app: &TestApp) {
         .await
         .expect("create node");
     sqlx::query(
-        "INSERT INTO sessions (session_id, client_type, state) VALUES ('sess_patch_request', 'pi', 'working')",
+        "INSERT INTO sessions (session_id, client_type, state, current_turn_id) VALUES ('sess_patch_request', 'pi', 'busy', 'turn_patch_request')",
     )
     .execute(&app.db)
     .await
@@ -71,8 +73,8 @@ async fn seed_requester(app: &TestApp) {
             started_at: None,
             last_seen_at: None,
             restart_count: 0,
-            tmux_socket_path: Some("/tmp/pontia-test.sock".into()),
-            tmux_pane_id: Some("%1".into()),
+            tmux_socket_path: None,
+            tmux_pane_id: None,
             process_fingerprint: None,
             capabilities: r#"{"interrupt":true}"#.into(),
             diagnostics: "{}".into(),

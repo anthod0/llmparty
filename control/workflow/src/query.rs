@@ -817,7 +817,13 @@ fn derive_status(
     if failure_location {
         return WorkflowAgentStatus::Failed;
     }
-    if workflow.state == "paused" && current && session_state == Some("interrupted") {
+    // An unsubmitted requester is suspended during Patch planning and queued
+    // continuation. A submitted Node still exits unless the Workflow is paused.
+    if current
+        && session_state == Some("interrupted")
+        && (workflow.state == "paused"
+            || (workflow.state != "failed" && node.submitted_at.is_none()))
+    {
         return WorkflowAgentStatus::Paused;
     }
     if node.submitted_at.is_some() {

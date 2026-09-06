@@ -137,7 +137,8 @@ async fn only_the_exact_client_confirmed_interruption_unlocks_replanning() {
     assert!(patch.interruption_requested_at.is_some());
     assert!(patch.replanning_unlocked_at.is_none());
 
-    insert_interrupted_fact(&pool, "evt_wrong_runtime", "stale_runtime").await;
+    insert_started_and_interrupted_facts(&pool, "evt_wrong_runtime", "turn_stale", "stale_runtime")
+        .await;
     coordinator
         .reconcile("wf_patch_interrupt")
         .await
@@ -152,7 +153,13 @@ async fn only_the_exact_client_confirmed_interruption_unlocks_replanning() {
             .is_none()
     );
 
-    insert_interrupted_fact(&pool, "evt_confirmed", "runtime_patch_interrupt").await;
+    insert_started_and_interrupted_facts(
+        &pool,
+        "evt_confirmed",
+        "turn_patch_interrupt",
+        "runtime_patch_interrupt",
+    )
+    .await;
     coordinator
         .reconcile("wf_patch_interrupt")
         .await
@@ -185,16 +192,31 @@ async fn only_the_exact_client_confirmed_interruption_unlocks_replanning() {
     );
 }
 
-async fn insert_interrupted_fact(pool: &sqlx::SqlitePool, event_id: &str, runtime: &str) {
-    sqlx::query(
-        r#"INSERT INTO events
-           (event_id, session_id, turn_id, source, client_type, event_type, occurred_at, payload)
-           VALUES (?, 'sess_patch_interrupt', 'turn_patch_interrupt', 'agent_adapter', 'pi',
-                   'turn.interrupted', '2026-08-01T00:00:00Z', ?)"#,
-    )
-    .bind(event_id)
-    .bind(json!({ "runtime_instance_id": runtime }).to_string())
-    .execute(pool)
-    .await
-    .expect("persist interruption fact");
+async fn insert_started_and_interrupted_facts(
+    pool: &sqlx::SqlitePool,
+    event_id: &str,
+    turn_id: &str,
+    runtime: &str,
+) {
+    for (id, event_type, payload) in [
+        (
+            format!("{event_id}_started"),
+            "turn.started",
+            json!({ "runtime_instance_id": runtime }),
+        ),
+        (event_id.into(), "turn.interrupted", json!({})),
+    ] {
+        sqlx::query(
+            r#"INSERT INTO events
+               (event_id, session_id, turn_id, source, client_type, event_type, occurred_at, payload)
+               VALUES (?, 'sess_patch_interrupt', ?, 'agent_adapter', 'pi', ?, '2026-08-01T00:00:00Z', ?)"#,
+        )
+        .bind(id)
+        .bind(turn_id)
+        .bind(event_type)
+        .bind(payload.to_string())
+        .execute(pool)
+        .await
+        .expect("persist client fact");
+    }
 }

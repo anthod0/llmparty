@@ -1,6 +1,8 @@
 use pontia_core::{Error, Result};
 use sqlx::SqlitePool;
 
+use super::events::WORKFLOW_TERMINAL_EVENTS;
+
 use crate::models::workflows::{
     WorkflowAgentEventRow, WorkflowEventRow, WorkflowNodeRow, WorkflowPatchRow, WorkflowRow,
 };
@@ -1039,8 +1041,9 @@ impl SqliteWorkflowRepository {
     }
 
     pub async fn patch_requester_interrupted(&self, patch_id: &str) -> Result<bool> {
-        let result = sqlx::query(
-            r#"UPDATE workflow_patches
+        let result = sqlx::query(&format!(
+            r#"{WORKFLOW_TERMINAL_EVENTS}
+               UPDATE workflow_patches
                SET replanning_unlocked_at = COALESCE(
                        replanning_unlocked_at,
                        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -1048,15 +1051,13 @@ impl SqliteWorkflowRepository {
                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                WHERE patch_id = ? AND state = 'requested'
                  AND EXISTS (
-                     SELECT 1 FROM events
-                     WHERE events.session_id = workflow_patches.requesting_session_id
-                       AND events.turn_id = workflow_patches.requesting_turn_id
-                       AND events.event_type = 'turn.interrupted'
-                       AND events.source IN ('agent_adapter', 'agent_client')
-                       AND json_extract(events.payload, '$.runtime_instance_id') =
-                           workflow_patches.requesting_runtime_instance_id
+                     SELECT 1 FROM workflow_terminal_events AS e
+                     WHERE e.session_id = workflow_patches.requesting_session_id
+                       AND e.turn_id = workflow_patches.requesting_turn_id
+                       AND e.event_type = 'turn.interrupted'
+                       AND e.runtime_instance_id = workflow_patches.requesting_runtime_instance_id
                  )"#,
-        )
+        ))
         .bind(patch_id)
         .execute(&self.pool)
         .await?;
@@ -1641,16 +1642,16 @@ impl SqliteWorkflowRepository {
         workflow_id: &str,
         event_id: &str,
     ) -> Result<bool> {
-        Ok(sqlx::query_scalar::<_, i64>(
-            r#"SELECT COUNT(*) FROM events AS e
+        Ok(sqlx::query_scalar::<_, i64>(&format!(
+            r#"{WORKFLOW_TERMINAL_EVENTS}
+               SELECT COUNT(*) FROM workflow_terminal_events AS e
                JOIN workflow_patches AS p
                  ON p.workflow_id = ? AND p.requesting_session_id = e.session_id
                 AND p.requesting_turn_id = e.turn_id
                 AND p.state IN ('applied', 'rejected')
-                AND json_extract(e.payload, '$.runtime_instance_id') =
-                    p.requesting_runtime_instance_id
+                AND e.runtime_instance_id = p.requesting_runtime_instance_id
                WHERE e.event_id = ? AND e.event_type = 'turn.interrupted'"#,
-        )
+        ))
         .bind(workflow_id)
         .bind(event_id)
         .fetch_one(&self.pool)

@@ -151,7 +151,14 @@ impl TestAgentEvents {
             EventSource::AgentClient
         };
         let event_id = format!("evt_{session_id}_{event_type}");
-        let payload = json!({ "runtime_instance_id": format!("runtime_{session_id}") });
+        let payload = if matches!(
+            event_type,
+            EventType::TurnStarted | EventType::SessionExited
+        ) {
+            json!({ "runtime_instance_id": format!("runtime_{session_id}") })
+        } else {
+            json!({})
+        };
         sqlx::query(
             r#"INSERT OR IGNORE INTO events
                (event_id, session_id, turn_id, source, client_type, event_type, occurred_at, payload)

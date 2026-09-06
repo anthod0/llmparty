@@ -458,6 +458,15 @@ output = "replacement.md"
         .execute(&pool).await.unwrap();
     sqlx::query("UPDATE sessions SET current_turn_id = 'turn_requester_second', state = 'busy' WHERE session_id = 'sess_requester'")
         .execute(&pool).await.unwrap();
+    insert_fact(
+        &pool,
+        "evt_requester_second_started",
+        "sess_requester",
+        "turn_requester_second",
+        "turn.started",
+        "runtime_requester",
+    )
+    .await;
     let second_patch_id = WorkflowPatchService::new(pool.clone(), pontia_home.clone())
         .request_patch(RequestWorkflowPatch {
             session_id: "sess_requester".into(),
@@ -939,6 +948,15 @@ async fn seed_requester(
         .execute(pool).await.unwrap();
     sqlx::query("INSERT INTO runtime_bindings (session_id, runtime_kind, runtime_instance_id, binding_state) VALUES ('sess_requester', 'pi_tui', 'runtime_requester', 'confirmed')")
         .execute(pool).await.unwrap();
+    insert_fact(
+        pool,
+        "evt_requester_started",
+        "sess_requester",
+        "turn_requester",
+        "turn.started",
+        "runtime_requester",
+    )
+    .await;
     let workflow_dir = pontia_home.join("workflows").join(workflow_id);
     std::fs::create_dir_all(&workflow_dir).unwrap();
     let root_id = format!("{workflow_id}_root");
@@ -988,6 +1006,15 @@ async fn seed_replanner_session(
         .bind(turn_id).bind(session_id).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO runtime_bindings (session_id, runtime_kind, runtime_instance_id, binding_state) VALUES (?, 'pi_tui', ?, 'confirmed')")
         .bind(session_id).bind(runtime_id).execute(pool).await.unwrap();
+    insert_fact(
+        pool,
+        &format!("evt_{turn_id}_started"),
+        session_id,
+        turn_id,
+        "turn.started",
+        runtime_id,
+    )
+    .await;
 }
 
 async fn insert_fact(
@@ -1007,7 +1034,11 @@ async fn insert_fact(
     .bind(session_id)
     .bind(turn_id)
     .bind(event_type)
-    .bind(json!({ "runtime_instance_id": runtime_id }).to_string())
+    .bind(if event_type == "turn.started" {
+        json!({ "runtime_instance_id": runtime_id }).to_string()
+    } else {
+        "{}".into()
+    })
     .execute(pool)
     .await
     .unwrap();

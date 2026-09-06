@@ -11,7 +11,7 @@ use pontia_application::{
 use pontia_core::domain::EventType;
 use pontia_storage_sqlite::{
     models::{
-        events::EventRow,
+        events::WorkflowTerminalEventRow,
         workflows::{WorkflowNodeRow, WorkflowPatchRow, WorkflowRow},
     },
     repositories::{
@@ -236,7 +236,7 @@ where
         };
         let Some(event) = self
             .persisted_events
-            .latest_workflow_terminal_event(session_id)
+            .latest_workflow_terminal_event(session_id, None, None)
             .await?
         else {
             return Ok(());
@@ -244,9 +244,7 @@ where
         let Some(terminal) = AgentTerminal::from_event_type(&event.event_type) else {
             return Ok(());
         };
-        let runtime_instance_id = serde_json::from_str::<serde_json::Value>(&event.payload)
-            .ok()
-            .and_then(|payload| payload["runtime_instance_id"].as_str().map(str::to_string));
+        let runtime_instance_id = event.runtime_instance_id.clone();
         if terminal == AgentTerminal::TurnInterrupted
             && (self
                 .repository
@@ -519,27 +517,27 @@ where
     async fn requester_terminal_before_interruption(
         &self,
         patch: &WorkflowPatchRow,
-    ) -> Result<Option<EventRow>> {
+    ) -> Result<Option<WorkflowTerminalEventRow>> {
         let Some(event) = self
             .persisted_events
-            .latest_workflow_terminal_event(&patch.requesting_session_id)
+            .latest_workflow_terminal_event(
+                &patch.requesting_session_id,
+                Some(&patch.requesting_runtime_instance_id),
+                Some(&patch.requesting_turn_id),
+            )
             .await?
         else {
             return Ok(None);
         };
-        if !event_has_runtime(&event, &patch.requesting_runtime_instance_id) {
-            return Ok(None);
-        }
         let terminal = AgentTerminal::from_event_type(&event.event_type);
-        let belongs_to_requesting_turn =
-            event.turn_id.as_deref() == Some(patch.requesting_turn_id.as_str());
-        if terminal == Some(AgentTerminal::SessionExited)
-            || (belongs_to_requesting_turn
-                && matches!(
-                    terminal,
-                    Some(AgentTerminal::TurnCompleted | AgentTerminal::TurnFailed)
-                ))
-        {
+        if matches!(
+            terminal,
+            Some(
+                AgentTerminal::SessionExited
+                    | AgentTerminal::TurnCompleted
+                    | AgentTerminal::TurnFailed
+            )
+        ) {
             Ok(Some(event))
         } else {
             Ok(None)
@@ -555,14 +553,11 @@ where
         };
         let Some(event) = self
             .persisted_events
-            .latest_workflow_terminal_event(session_id)
+            .latest_workflow_terminal_event(session_id, Some(runtime_instance_id), None)
             .await?
         else {
             return Ok(());
         };
-        if !event_has_runtime(&event, runtime_instance_id) {
-            return Ok(());
-        }
         let Some(terminal) = AgentTerminal::from_event_type(&event.event_type) else {
             return Ok(());
         };
@@ -761,7 +756,7 @@ where
         };
         let Some(event) = self
             .persisted_events
-            .latest_workflow_terminal_event(session_id)
+            .latest_workflow_terminal_event(session_id, Some(runtime_instance_id), Some(turn_id))
             .await?
         else {
             return Ok(());
@@ -778,14 +773,10 @@ where
         {
             return Ok(());
         }
-        let event_runtime = serde_json::from_str::<serde_json::Value>(&event.payload)
-            .ok()
-            .and_then(|payload| payload["runtime_instance_id"].as_str().map(str::to_string));
-        if event_runtime.as_deref() != Some(runtime_instance_id)
-            || !self
-                .repository
-                .claim_patch_replanner_exit(&patch.patch_id)
-                .await?
+        if !self
+            .repository
+            .claim_patch_replanner_exit(&patch.patch_id)
+            .await?
         {
             return Ok(());
         }
@@ -853,14 +844,6 @@ where
         }
         Ok(())
     }
-}
-
-fn event_has_runtime(event: &EventRow, expected_runtime_instance_id: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(&event.payload)
-        .ok()
-        .and_then(|payload| payload["runtime_instance_id"].as_str().map(str::to_string))
-        .as_deref()
-        == Some(expected_runtime_instance_id)
 }
 
 fn is_permanent_side_effect_failure(error: &Error) -> bool {
