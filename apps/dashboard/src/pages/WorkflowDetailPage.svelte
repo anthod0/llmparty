@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import * as Tabs from '$lib/components/ui/tabs/index.js'
+  import WorkflowVersions from './workflows/WorkflowVersions.svelte'
+  import { revisionSelection } from './workflows/revisions'
   import { CircleAlert, Pause, Play, Workflow } from '@lucide/svelte'
   import { navigate } from '$lib/navigation'
   import { cn } from '$lib/utils.js'
@@ -15,8 +18,23 @@
   import type { WorkflowAgentStatus, WorkflowDetailView } from '../api/types'
 
   let { routeWorkflowId }: { routeWorkflowId: string } = $props()
-  let requestedPhase = $state(new URLSearchParams(window.location.search).get('phase'))
+  let query = $state(new URLSearchParams(window.location.search))
+  let requestedPhase = $derived(query.get('phase'))
+  let activeTab = $derived(query.get('tab') === 'versions' || (!query.has('tab') && query.has('revision')) ? 'versions' : 'current')
+
+  function updateQuery(changes: Record<string, string | null>): void {
+    void navigate(`/workflows/${routeWorkflowId}`, { ...Object.fromEntries(query), ...changes })
+  }
   let snapshot = $derived($workflowDetail?.workflow_id === routeWorkflowId ? $workflowDetail : null)
+  let revision = $derived(snapshot ? revisionSelection(query.get('revision'), snapshot.current_revision) : null)
+  $effect(() => {
+    if (activeTab === 'versions' && !query.has('revision') && snapshot) {
+      const next = new URLSearchParams(query)
+      next.set('revision', String(snapshot.current_revision))
+      query = next
+      void navigate(`/workflows/${routeWorkflowId}`, Object.fromEntries(next), { replaceState: true })
+    }
+  })
   let phases = $derived(groupWorkflowPhases(snapshot?.nodes ?? [], snapshot?.current_node_id ?? null))
   let explicitOrdinal = $derived(selectedPhaseOrdinal(requestedPhase, phases))
   let selectedPhase = $derived(phases.find((phase) => phase.ordinal === explicitOrdinal) ?? phases.find((phase) => phase.current) ?? phases[0] ?? null)
@@ -24,11 +42,11 @@
   let actionBusy = $state(false)
 
   function readPhaseQuery(): void {
-    requestedPhase = new URLSearchParams(window.location.search).get('phase')
+    query = new URLSearchParams(window.location.search)
   }
 
   function syncPolling(detail: WorkflowDetailView | null): void {
-    const shouldPoll = detail?.workflow_id === routeWorkflowId && ['running', 'paused'].includes(detail.state) && document.visibilityState === 'visible'
+    const shouldPoll = detail?.workflow_id === routeWorkflowId && ['pending', 'running', 'paused', 'replanning', 'blocked', 'idle'].includes(detail.state) && document.visibilityState === 'visible'
     if (shouldPoll && !pollTimer) {
       pollTimer = setInterval(() => void refreshWorkflow(routeWorkflowId, { showLoading: false }), 2000)
     } else if (!shouldPoll && pollTimer) {
@@ -39,7 +57,7 @@
 
   function handleVisibility(): void {
     syncPolling($workflowDetail)
-    if (document.visibilityState === 'visible' && snapshot && ['running', 'paused'].includes(snapshot.state)) void refreshWorkflow(routeWorkflowId, { showLoading: false })
+    if (document.visibilityState === 'visible' && snapshot && ['pending', 'running', 'paused', 'replanning', 'blocked', 'idle'].includes(snapshot.state)) void refreshWorkflow(routeWorkflowId, { showLoading: false })
   }
 
   onMount(() => {
@@ -99,7 +117,7 @@
   <div class="flex items-start justify-between gap-4">
     <div class="min-w-0 space-y-2">
       <h2 class="flex items-center gap-2 text-3xl font-semibold tracking-tight"><Workflow class="size-7 shrink-0" /> <span class="truncate">{snapshot?.title ?? 'Workflow'}</span></h2>
-      {#if snapshot}<div class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><Badge variant={snapshot.state === 'failed' ? 'destructive' : 'secondary'}>{snapshot.state}</Badge><span>{snapshot.agent_submitted_count}/{snapshot.agent_total_count} agents</span><span>·</span><span>{formatElapsed(snapshot.elapsed_ms)}</span><span>·</span><span class="font-mono text-xs">{snapshot.workflow_id}</span></div>{/if}
+      {#if snapshot}<div class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><Badge variant={snapshot.state === 'failed' ? 'destructive' : 'secondary'}>{snapshot.state}</Badge><Badge variant="outline">Current v{snapshot.current_revision}</Badge><span>{snapshot.agent_submitted_count}/{snapshot.agent_total_count} agents</span><span>·</span><span>{formatElapsed(snapshot.elapsed_ms)}</span><span>·</span><span class="font-mono text-xs">{snapshot.workflow_id}</span></div>{/if}
     </div>
     <div class="flex shrink-0 gap-2">
       {#if snapshot?.state === 'running'}
@@ -112,11 +130,20 @@
 
   {#if $workflowDetailError}
     <Alert.Root variant="destructive"><CircleAlert class="size-4" /><Alert.Title>Workflow error</Alert.Title><Alert.Description>{$workflowDetailError}</Alert.Description></Alert.Root>
+    <Button variant="outline" onclick={() => void refreshWorkflow(routeWorkflowId)}>Retry workflow</Button>
   {/if}
   {#if snapshot?.failure_message}
     <Alert.Root variant="destructive"><CircleAlert class="size-4" /><Alert.Title>Workflow failed</Alert.Title><Alert.Description>{snapshot.failure_message}</Alert.Description></Alert.Root>
   {/if}
 
+  <Tabs.Root value={activeTab} onValueChange={(value) => updateQuery({ tab: value, revision: value === 'versions' ? query.get('revision') ?? String(snapshot?.current_revision ?? 1) : query.get('revision') })}>
+    <Tabs.List aria-label="Workflow detail"><Tabs.Trigger value="current">Current workflow</Tabs.Trigger><Tabs.Trigger value="versions">Versions</Tabs.Trigger></Tabs.List>
+    <Tabs.Content value="versions">
+      {#if snapshot}
+        <WorkflowVersions workflowId={routeWorkflowId} currentRevision={snapshot.current_revision} {revision} onselect={(value) => updateQuery({ tab: 'versions', revision: String(value) })} oncurrent={() => updateQuery({ tab: 'current', revision: null })} />
+      {:else if $workflowDetailLoading}<Skeleton class="h-80 w-full" />{/if}
+    </Tabs.Content>
+    <Tabs.Content value="current">
   {#if $workflowDetailLoading && !snapshot}
     <div class="space-y-3"><Skeleton class="h-24 w-full" /><Skeleton class="h-80 w-full" /></div>
   {:else if snapshot && selectedPhase}
@@ -129,7 +156,7 @@
               <Button
                 variant={selectedPhase.ordinal === phase.ordinal ? 'secondary' : 'ghost'}
                 class="h-auto w-full justify-start px-2 py-2 text-left"
-                onclick={() => void navigate(`/workflows/${routeWorkflowId}`, { phase: String(phase.ordinal) })}
+                onclick={() => updateQuery({ phase: String(phase.ordinal) })}
               >
                 <span class={cn('w-3 shrink-0 font-semibold', phase.current ? 'text-primary' : 'text-transparent')}>›</span>
                 <span class="w-5 shrink-0 text-xs text-muted-foreground">{phase.ordinal}</span>
@@ -165,4 +192,6 @@
   {:else if !$workflowDetailLoading && !$workflowDetailError}
     <Empty.Root><Empty.Header><Empty.Title>Workflow unavailable</Empty.Title><Empty.Description>No observable Workflow snapshot was returned.</Empty.Description></Empty.Header></Empty.Root>
   {/if}
+    </Tabs.Content>
+  </Tabs.Root>
 </section>

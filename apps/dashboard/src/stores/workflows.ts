@@ -29,21 +29,30 @@ export async function loadWorkflows(options: LoadOptions = {}): Promise<Workflow
   }
 }
 
+let detailRequest = 0;
+let appliedDetailRequest = 0;
+
 export async function refreshWorkflow(workflowId: string, options: LoadOptions = {}): Promise<WorkflowDetailView | null> {
   if (!workflowId) return null;
+  const request = ++detailRequest;
+  const isCurrent = () => request >= appliedDetailRequest && (!get(selectedWorkflowId) || get(selectedWorkflowId) === workflowId);
   const showLoading = options.showLoading ?? true;
   if (showLoading) workflowDetailLoading.set(true);
   workflowDetailError.set(null);
   try {
     const loaded = await getWorkflow(workflowId);
+    if (!isCurrent()) return null;
+    appliedDetailRequest = request;
     applyWorkflowDetail(loaded);
     return loaded;
   } catch (error) {
+    if (!isCurrent()) return null;
+    appliedDetailRequest = request;
     workflowDetailError.set(error instanceof Error ? error.message : String(error));
     if (showLoading) workflowDetail.set(null);
     return null;
   } finally {
-    if (showLoading) workflowDetailLoading.set(false);
+    if (isCurrent()) workflowDetailLoading.set(false);
   }
 }
 
@@ -77,6 +86,7 @@ function applyWorkflowDetail(loaded: WorkflowDetailView): void {
     ...item,
     title: loaded.title,
     state: loaded.state,
+    current_revision: loaded.current_revision,
     failure_message: loaded.failure_message,
     agent_submitted_count: loaded.agent_submitted_count,
     agent_total_count: loaded.agent_total_count,

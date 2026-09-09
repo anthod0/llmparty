@@ -6,7 +6,7 @@ export type TurnState = 'queued' | 'running' | 'completed' | 'failed' | 'interru
 export type TurnTopologyStatus = 'unknown' | 'root' | 'linked';
 export type InboxDeliveryPolicy = 'after_idle' | 'interrupt_now';
 export type InboxMessageState = 'pending' | 'dispatching' | 'dispatched' | 'cancelled' | 'superseded' | 'failed' | 'dismissed';
-export type WorkflowState = 'pending' | 'running' | 'paused' | 'idle' | 'completed' | 'failed';
+export type WorkflowState = 'pending' | 'running' | 'paused' | 'replanning' | 'blocked' | 'idle' | 'completed' | 'failed';
 export type WorkflowAgentStatus = 'pending' | 'starting' | 'running' | 'paused' | 'idle' | 'exiting' | 'submitted' | 'failed' | 'unknown';
 
 export interface WorkflowListItemView {
@@ -24,6 +24,30 @@ export interface WorkflowListItemView {
   updated_at: string;
   elapsed_ms: number;
   observation_error: string | null;
+}
+
+export interface WorkflowGraphRevisionView {
+  workflow_id: string;
+  revision: number;
+  current: boolean;
+  nodes: WorkflowGraphNodeView[];
+}
+
+export interface WorkflowGraphNodeView {
+  node_id: string;
+  parent_node_id: string | null;
+  node_type: string;
+  session_id: string | null;
+  turn_ids: string[];
+  phase: string;
+  title: string;
+  instructions: string;
+  inputs: string[];
+  output: string;
+  execution_profile_id: string | null;
+  execution_profile_version: string | null;
+  introduced_revision: number;
+  retired_revision: number | null;
 }
 
 export interface WorkflowNodeView {

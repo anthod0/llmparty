@@ -27,6 +27,7 @@ import type {
   WorkspaceRootView,
   WorkspaceView,
   WorkflowDetailView,
+  WorkflowGraphRevisionView,
   WorkflowListItemView,
 } from './types';
 
@@ -191,6 +192,10 @@ export async function listWorkflows(limit = 50, options: ReadRequestOptions = {}
 
 export async function getWorkflow(workflowId: string, options: ReadRequestOptions = {}): Promise<WorkflowDetailView> {
   return (await request<{ workflow: WorkflowDetailView }>(`/workflows/${encodeURIComponent(workflowId)}`, options)).workflow;
+}
+
+export async function getWorkflowRevision(workflowId: string, revision: number, options: ReadRequestOptions = {}): Promise<WorkflowGraphRevisionView> {
+  return (await request<{ revision: WorkflowGraphRevisionView }>(`/workflows/${encodeURIComponent(workflowId)}/revisions/${revision}`, options)).revision;
 }
 
 export async function pauseWorkflow(workflowId: string): Promise<WorkflowDetailView> {
