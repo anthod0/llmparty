@@ -1,49 +1,41 @@
 # @pontia/pi-client-plugin
 
-Connect Pi coding-agent sessions to Pontia.
+Connect your pi coding-agent sessions to Pontia so you can follow and continue your work from the web dashboard.
 
 ## Requirements
 
 - [Pontia](https://pontia.dev/) running locally
-- Pi CLI
+- pi CLI
 - tmux
 
 ## Install
+
+If you selected the pi integration during `pontia init`, the plugin is already installed.
+
+To install it separately:
 
 ```bash
 pi install npm:@pontia/pi-client-plugin
 ```
 
-## Configure
+The plugin loads automatically when pi starts.
 
-Set the Pi command in `$PONTIA_HOME/config.toml`:
+## Get started
 
-```toml
-[runtime.pi]
-tui_command = "pi"
-```
+Open the Pontia dashboard and create a pi session. You can then view the session and continue the conversation from the dashboard.
 
-Then launch Pi from Pontia, or run it in a tmux pane inside a workspace registered with Pontia. The extension loads automatically.
+You can also start pi in a tmux pane inside a workspace registered with Pontia.
+
+For Pontia installation and setup, see the [getting started guide](../../README.md#get-started).
 
 ## Troubleshooting
 
-If a session does not appear in Pontia, verify that:
+If a session does not appear in the dashboard, check that:
 
-- Pontia is running
-- the current workspace is registered with Pontia
-- Pi is running inside tmux
-
-Extension logs are available at:
-
-```text
-${PONTIA_HOME:-$HOME/.pontia}/state/pi-hook.log
-```
-
-Follow the log while reproducing an issue:
-
-```bash
-tail -f "${PONTIA_HOME:-$HOME/.pontia}/state/pi-hook.log"
-```
+- Pontia is running (`pontia status`).
+- The workspace is registered with Pontia.
+- pi is running inside tmux.
+- If you just installed the plugin, you have restarted pi.
 
 ## License
 

@@ -2,203 +2,92 @@
   <img src="./assets/logo.svg" width="120" alt="Pontia Logo" />
 </p>
 
-<p align="center">An experimental control plane for coding agents.</p>
+<p align="center">Keep your coding agents working beyond a single terminal window.</p>
 
-> The project is in development, changes quickly, and is not stable yet. Breaking changes should be expected.
+> Pontia is experimental and under active development. Some workflows are incomplete, and breaking changes should be expected.
 
-## What pontia is
+## What Pontia is
 
-`pontia` is for developers who want coding agents to keep working beyond one terminal window.
+Pontia is for developers who want coding agents to keep working beyond one terminal window.
 
 It aims to provide:
 
-- **Real agent TUI runtime** — use real agent TUIs as runtimes instead of short-lived subprocess prompts, allowing sessions to stay alive for a long time while preserving official client behavior.
-- **One long-lived session, control from anywhere** — start, continue, observe, or steer the same agent session from desktop, Web, mobile, or TUI surfaces.
-- **Observable long-running tasks** — let agents plan large tasks as DAGs, then expose each planning and implementation node so developers can understand, intervene, retry, and repair the work.
+- **Persistent agent sessions** — keep working with your agent over time without giving up its familiar terminal experience.
+- **One session, control from anywhere** — start, continue, observe, or steer the same agent session from your terminal or web dashboard, with broader desktop and mobile access as a product goal.
+- **Visible long-running tasks** — let agents break large tasks into manageable steps so you can understand progress, intervene, and retry work when needed.
 
-In short: `pontia` keeps official agent work alive, visible, controllable, and fixable.
+In short: Pontia keeps agent work alive, visible, and under your control.
 
-### Agent-planned WorkItem DAGs
+### Long-running work you can follow
 
 Long tasks should not be opaque prompts that run for hours with no structure.
 
-`pontia` aims to model long-running work as a WorkItem DAG: an ordered dependency graph, similar to a structured todo list. A Planner creates and repairs the execution graph, while Worker agents execute work items along that graph.
+Pontia's goal is to let agents turn a large task into a clear plan: what needs to happen, which steps depend on others, and what is ready to work on next. As work progresses, agents should be able to adjust the plan rather than blindly follow it.
 
-The goal is to concentrate intelligence in planning and replanning while keeping workers simple and predictable. Developers should be able to inspect the DAG, understand what happened, and intervene, retry, or repair the task at the node level.
+Developers should be able to inspect each step, understand the results, and intervene, retry, or revise part of the task without starting everything over.
 
-DAG orchestration is a product direction, not a capability of the current release. Its earlier implementation was removed and needs to be redesigned before it is reintroduced.
+This is a product direction, not a capability of the current release.
 
 ## Current status
 
-Pontia is experimental and intended for local development use. The current release supports:
+Pontia is currently intended for local development use. It supports:
 
-- pi as the active agent client integration;
+- pi as the supported coding agent;
 - session creation, conversation, termination, and resume;
-- a Web Dashboard for viewing and controlling sessions;
-- tmux-backed sessions for Web-based input.
-
-Some workflows are incomplete, and configuration or data formats may change without notice.
+- a web dashboard for viewing and controlling sessions;
+- interaction with the same session from the terminal and the web.
 
 ## Roadmap
 
-- [x] pi client integration
-- [x] Basic Web Dashboard
+- [x] pi integration
+- [x] Basic web dashboard
 - [x] Session creation, conversation, termination, and resume
-- [x] Reliable bidirectional control across supported interfaces
+- [x] Terminal and web control of the same session
 - [ ] Human approval and review workflows
-- [ ] Reintroduce agent-planned WorkItem DAGs
-- [ ] Long-running DAG task scheduling, inspection, retry, and repair
-- [ ] Stable, versioned product documentation
-- [ ] More agent client integrations
-- [ ] Ready-to-use binaries and Docker images
+- [ ] Agent-created plans for large tasks
+- [ ] Long-running task scheduling, progress inspection, retry, and repair
+- [ ] Stable product documentation
+- [ ] More coding agent integrations
 
-## Run locally from source
+## Get started
 
-### Prerequisites
+### Install
 
-Install:
+1. Download the `pontia` and `pontiad` packages for your operating system and processor from [Releases](https://github.com/anthod0/pontia/releases/latest).
+2. Extract both executables into the same directory on your `PATH`, such as `$HOME/.local/bin`.
+3. Install pi CLI and tmux if they are not already available.
 
-- Rust / Cargo
-- just
-- sqlite3 CLI
-- tmux
-- pnpm
-- pi CLI if you want to run the current client integration locally
+Pontia supports Linux with systemd and macOS. No Rust, Cargo, or frontend build tools are needed to use the published binaries.
 
-### Build the dashboard
+### First-time setup
 
-```bash
-pnpm --dir=apps/dashboard install
-pnpm --dir=apps/dashboard run build
-```
-
-### Install the pi client plugin
-
-Install the published first-party plugin from npm:
-
-```bash
-pi install npm:@pontia/pi-client-plugin
-```
-
-Pi loads the plugin automatically after installation; Pontia does not need to pass an extension path on each launch.
-
-When developing the plugin from this checkout, install the local package instead:
-
-```bash
-pi install ./clients/pi
-```
-
-The local development install references this checkout, so keep the repository path available while using it.
-
-### Configure pontia
-
-`pontia` uses `$HOME/.pontia` by default. Set `PONTIA_HOME` to a non-empty, non-root absolute path to override that location. An explicitly configured empty, relative, `~`-prefixed, root, or parent-traversing value is rejected instead of falling back to the default.
-
-`HOME` is consulted only to resolve the default Pontia home. Configuration is then read from `config.toml` beneath the resolved home, and the database, logs, launch scripts, Workflow handoffs, and remote Dashboard cache are all derived from that root.
-
-Minimal example:
-
-```toml
-bind_addr = "127.0.0.1:8080"
-external_api_token = "dev-token"
-run_migrations = true
-
-[dashboard]
-source = "apps/dashboard/dist"
-
-[runtime.pi]
-tui_command = "pi"
-
-[workspace_browser]
-roots = [
-  { root_id = "projects", label = "Projects", path = "/home/me/projects" }
-]
-
-[file_picker]
-enabled = true
-min_query_chars = 0
-max_results = 100
-max_candidates = 100000
-timeout_ms = 1500
-respect_gitignore = true
-respect_ignore_files = true
-respect_git_exclude = true
-include_hidden = false
-follow_symlinks = false
-ignore_globs = [
-  ".git/**",
-  "node_modules/**",
-  "target/**",
-  "dist/**",
-  "build/**",
-  ".svelte-kit/**",
-  ".next/**"
-]
-```
-
-Environment-variable overrides are also supported. See [`.env.example`](.env.example) for a shell environment template; Pontia does not load `.env` files itself. `pontia init` intentionally uses persisted daemon configuration rather than command-scoped overrides because the user service captures only `PONTIA_HOME`.
-
-### Install a local build
-
-Build the Dashboard and release binaries from this checkout, then install them beneath `$HOME/.local`:
-
-```bash
-just install-local
-```
-
-The command installs `pontia` and `pontiad` into `$HOME/.local/bin`, installs the Dashboard into `$HOME/.local/share/pontia/dashboard`, registers `./clients/pi` as a local pi package, and creates `$PONTIA_HOME/config.toml` with that Dashboard source when no config exists. Before registering the local package, it removes `npm:@pontia/pi-client-plugin` from the user's pi settings when present. The local pi package references this checkout, rather than the published npm package. Existing Pontia configuration is never overwritten. Set an absolute `PREFIX`, `PONTIA_HOME`, or `PI_CODING_AGENT_DIR` to override the default locations.
-
-Installation does not start Pontia. For first-time setup, run the interactive initializer and select `none` for Agent Clients because the local pi integration is already installed:
+Run the interactive initializer:
 
 ```bash
 pontia init
 ```
 
-Accepting the defaults installs the published pi integration, configures `$HOME` as the Workspace Browser root, generates an External API token, starts the `pontiad` user service, and opens an authenticated Dashboard URL. After startup, press Enter to open the same URL again. `Ctrl-C` exits the initializer without stopping Pontia; use `pontia down` to stop the service.
+Accept the default pi integration and follow the prompts. The initializer installs the pi plugin, configures Pontia, starts the service, and opens the dashboard.
 
-If configuration is already managed separately, start the service directly instead:
+Exiting the initializer does not stop Pontia.
 
-```bash
-pontia up
-```
+### Start and stop
 
-### Run the daemon from source
-
-`pontiad` is the long-running Control Plane process. It runs in the foreground so a service manager can supervise it; `just dev-backend` starts it from source for development.
+After setup, use:
 
 ```bash
-# Optional: omit this to use $HOME/.pontia.
-export PONTIA_HOME=/absolute/path/to/pontia-home
-just dev-backend
-```
-
-Use `just dev` to run the backend and Dashboard development server together, or `just dev-dashboard` and `just dev-website` to run either frontend separately.
-
-For an installed build, use the `pontia` lifecycle CLI. It manages a per-user systemd service on Linux or a per-user launchd LaunchAgent on macOS; `pontiad` remains a foreground daemon under the service manager.
-
-```bash
-# Optional: pontia up captures the effective absolute home in the service definition.
-export PONTIA_HOME=/absolute/path/to/pontia-home
 pontia up
 pontia status
 pontia down
 ```
 
-Linux systems without systemd must supervise `pontiad` with another service manager such as OpenRC, runit, or s6.
+The dashboard is available at `http://127.0.0.1:8080/dashboard` by default. Use the access token configured during setup when prompted.
 
-Check health:
+### Configuration
 
-```bash
-curl http://127.0.0.1:8080/healthz
-```
+Pontia stores its configuration in `$HOME/.pontia/config.toml` by default. To use another location, set `PONTIA_HOME` to an absolute directory path.
 
-Open the dashboard:
-
-```text
-http://127.0.0.1:8080/dashboard
-```
-
-Enter the configured External API token, for example `dev-token`.
+See [`.env.example`](.env.example) for available environment settings. Pontia does not automatically load `.env` files.
 
 ## License
 
