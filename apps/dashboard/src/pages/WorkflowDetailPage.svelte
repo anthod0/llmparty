@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { CircleAlert, Pause, Play, RefreshCw, Workflow } from '@lucide/svelte'
+  import { CircleAlert, Pause, Play, Workflow } from '@lucide/svelte'
   import { navigate } from '$lib/navigation'
   import { cn } from '$lib/utils.js'
   import * as Alert from '$lib/components/ui/alert/index.js'
@@ -107,7 +107,6 @@
       {:else if snapshot?.state === 'paused'}
         <Button variant="outline" disabled={actionBusy} onclick={() => void runControl('resume')}><Play class="size-4" /> Resume</Button>
       {/if}
-      <Button variant="outline" disabled={actionBusy} onclick={() => void refreshWorkflow(routeWorkflowId)}><RefreshCw class="size-4" /> Refresh</Button>
     </div>
   </div>
 

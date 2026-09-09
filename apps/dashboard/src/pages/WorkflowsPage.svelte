@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { CircleAlert, RefreshCw, Workflow } from '@lucide/svelte'
+  import { CircleAlert, Workflow } from '@lucide/svelte'
   import { navigate } from '$lib/navigation'
   import * as Alert from '$lib/components/ui/alert/index.js'
   import { Badge } from '$lib/components/ui/badge/index.js'
-  import { Button } from '$lib/components/ui/button/index.js'
   import * as Card from '$lib/components/ui/card/index.js'
   import * as Empty from '$lib/components/ui/empty/index.js'
   import { Skeleton } from '$lib/components/ui/skeleton/index.js'
@@ -27,9 +26,7 @@
   <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
     <div class="space-y-2">
       <h2 class="flex items-center gap-2 text-3xl font-semibold tracking-tight"><Workflow class="size-7" /> Workflows</h2>
-      <p class="max-w-3xl text-muted-foreground">Observe Workflow progress and open the agent Session for each node.</p>
     </div>
-    <Button variant="outline" onclick={() => void loadWorkflows()}><RefreshCw class="size-4" /> Refresh</Button>
   </div>
 
   {#if $workflowsError}
