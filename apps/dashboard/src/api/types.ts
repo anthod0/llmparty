@@ -60,6 +60,39 @@ export interface WorkflowNodeView {
   submitted_at: string | null;
 }
 
+export interface WorkflowActivePatchView {
+  patch_id: string;
+  state: string;
+  base_revision: number;
+  request_document_ref: string;
+  requesting_node_id: string;
+  requesting_session_id: string;
+  requesting_turn_id: string;
+  replanner_session_id: string | null;
+  replanner_turn_id: string | null;
+}
+
+export interface WorkflowPatchHistoryView extends WorkflowActivePatchView {
+  outcome: string | null;
+  result_revision: number | null;
+  requesting_runtime_instance_id: string;
+  replanner_runtime_instance_id: string | null;
+  added_node_ids: string[];
+  retired_node_ids: string[];
+  decision_document_ref: string | null;
+  reason_document_ref: string | null;
+  blocked_draft_ref: string | null;
+  requested_at: string;
+  planning_at: string | null;
+  resolved_at: string | null;
+}
+
+export interface WorkflowDocumentView {
+  workflow_id: string;
+  document_ref: string;
+  content: string;
+}
+
 export interface WorkflowDetailView {
   workflow_id: string;
   title: string;
@@ -67,6 +100,7 @@ export interface WorkflowDetailView {
   current_revision: number;
   failure_message: string | null;
   cwd: string;
+  active_patch: WorkflowActivePatchView | null;
   agent_submitted_count: number;
   agent_total_count: number;
   current_node_id: string | null;

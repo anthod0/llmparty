@@ -11,7 +11,7 @@ vi.mock('$lib/navigation', () => ({ navigate: async (path: string, query: Record
   window.history[options.replaceState ? 'replaceState' : 'pushState']({}, '', url);
   window.dispatchEvent(new PopStateEvent('popstate'));
 } }));
-const snapshot: WorkflowDetailView = { workflow_id: 'wf', title: 'Example', state: 'completed', current_revision: 3, failure_message: null, cwd: '/workspace', agent_submitted_count: 0, agent_total_count: 1, current_node_id: null, started_at: null, completed_at: null, created_at: '', updated_at: '', elapsed_ms: 0, nodes: [{ node_id: 'n', phase: 'Build', title: 'Current writer', status: 'pending', session_id: 'session', session_state: null, submitted_at: null }] };
+const snapshot: WorkflowDetailView = { workflow_id: 'wf', title: 'Example', state: 'completed', current_revision: 3, active_patch: null, failure_message: null, cwd: '/workspace', agent_submitted_count: 0, agent_total_count: 1, current_node_id: null, started_at: null, completed_at: null, created_at: '', updated_at: '', elapsed_ms: 0, nodes: [{ node_id: 'n', phase: 'Build', title: 'Current writer', status: 'pending', session_id: 'session', session_state: null, submitted_at: null }] };
 beforeEach(() => {
   vi.clearAllMocks(); workflowDetail.set(null); workflowDetailError.set(null); workflowDetailLoading.set(false);
   mocks.getWorkflow.mockResolvedValue(snapshot);

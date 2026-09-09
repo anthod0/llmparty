@@ -2,6 +2,8 @@
   import { onMount } from 'svelte'
   import * as Tabs from '$lib/components/ui/tabs/index.js'
   import WorkflowVersions from './workflows/WorkflowVersions.svelte'
+  import WorkflowReplanning from './workflows/WorkflowReplanning.svelte'
+  import WorkflowSession from './workflows/WorkflowSession.svelte'
   import { revisionSelection } from './workflows/revisions'
   import { CircleAlert, Pause, Play, Workflow } from '@lucide/svelte'
   import { navigate } from '$lib/navigation'
@@ -20,10 +22,10 @@
   let { routeWorkflowId }: { routeWorkflowId: string } = $props()
   let query = $state(new URLSearchParams(window.location.search))
   let requestedPhase = $derived(query.get('phase'))
-  let activeTab = $derived(query.get('tab') === 'versions' || (!query.has('tab') && query.has('revision')) ? 'versions' : 'current')
+  let activeTab = $derived(query.get('tab') === 'replanning' ? 'replanning' : query.get('tab') === 'versions' || (!query.has('tab') && query.has('revision')) ? 'versions' : 'current')
 
-  function updateQuery(changes: Record<string, string | null>): void {
-    void navigate(`/workflows/${routeWorkflowId}`, { ...Object.fromEntries(query), ...changes })
+  function updateQuery(changes: Record<string, string | null>, replaceState = false): void {
+    void navigate(`/workflows/${routeWorkflowId}`, { ...Object.fromEntries(query), ...changes }, { replaceState })
   }
   let snapshot = $derived($workflowDetail?.workflow_id === routeWorkflowId ? $workflowDetail : null)
   let revision = $derived(snapshot ? revisionSelection(query.get('revision'), snapshot.current_revision) : null)
@@ -46,7 +48,7 @@
   }
 
   function syncPolling(detail: WorkflowDetailView | null): void {
-    const shouldPoll = detail?.workflow_id === routeWorkflowId && ['pending', 'running', 'paused', 'replanning', 'blocked', 'idle'].includes(detail.state) && document.visibilityState === 'visible'
+    const shouldPoll = detail?.workflow_id === routeWorkflowId && document.visibilityState === 'visible'
     if (shouldPoll && !pollTimer) {
       pollTimer = setInterval(() => void refreshWorkflow(routeWorkflowId, { showLoading: false }), 2000)
     } else if (!shouldPoll && pollTimer) {
@@ -57,7 +59,7 @@
 
   function handleVisibility(): void {
     syncPolling($workflowDetail)
-    if (document.visibilityState === 'visible' && snapshot && ['pending', 'running', 'paused', 'replanning', 'blocked', 'idle'].includes(snapshot.state)) void refreshWorkflow(routeWorkflowId, { showLoading: false })
+    if (document.visibilityState === 'visible') void refreshWorkflow(routeWorkflowId, { showLoading: false })
   }
 
   onMount(() => {
@@ -136,11 +138,28 @@
     <Alert.Root variant="destructive"><CircleAlert class="size-4" /><Alert.Title>Workflow failed</Alert.Title><Alert.Description>{snapshot.failure_message}</Alert.Description></Alert.Root>
   {/if}
 
+  {#if snapshot}
+    <Card.Root class="gap-2 p-4" aria-label="Current Replanner">
+      <h3 class="font-semibold">Current Replanner</h3>
+      {#if snapshot.active_patch}
+        <div class="flex flex-wrap items-center gap-2 text-sm"><span class="break-all font-mono text-xs">Patch {snapshot.active_patch.patch_id}</span><Badge variant="secondary">Patch state: {snapshot.active_patch.state}</Badge><span>Based on v{snapshot.active_patch.base_revision}</span></div>
+        {#if snapshot.active_patch.replanner_session_id}
+          <WorkflowSession sessionId={snapshot.active_patch.replanner_session_id} {snapshot} />
+        {:else}<p class="text-sm text-muted-foreground">Waiting for Replanner Session creation.</p>{/if}
+      {:else}<p class="text-sm text-muted-foreground">No active replanning.</p>{/if}
+    </Card.Root>
+  {/if}
+
   <Tabs.Root value={activeTab} onValueChange={(value) => updateQuery({ tab: value, revision: value === 'versions' ? query.get('revision') ?? String(snapshot?.current_revision ?? 1) : query.get('revision') })}>
-    <Tabs.List aria-label="Workflow detail"><Tabs.Trigger value="current">Current workflow</Tabs.Trigger><Tabs.Trigger value="versions">Versions</Tabs.Trigger></Tabs.List>
+    <Tabs.List aria-label="Workflow detail"><Tabs.Trigger value="current">Current workflow</Tabs.Trigger><Tabs.Trigger value="versions">Versions</Tabs.Trigger><Tabs.Trigger value="replanning">Replanning records</Tabs.Trigger></Tabs.List>
     <Tabs.Content value="versions">
-      {#if snapshot}
+      {#if snapshot && activeTab === 'versions'}
         <WorkflowVersions workflowId={routeWorkflowId} currentRevision={snapshot.current_revision} {revision} onselect={(value) => updateQuery({ tab: 'versions', revision: String(value) })} oncurrent={() => updateQuery({ tab: 'current', revision: null })} />
+      {:else if $workflowDetailLoading}<Skeleton class="h-80 w-full" />{/if}
+    </Tabs.Content>
+    <Tabs.Content value="replanning">
+      {#if snapshot && activeTab === 'replanning'}
+        <WorkflowReplanning {snapshot} patchId={query.get('patch')} onselect={(id, replace) => updateQuery({ tab: 'replanning', patch: id }, replace)} onrevision={(value) => updateQuery({ tab: 'versions', revision: String(value) })} />
       {:else if $workflowDetailLoading}<Skeleton class="h-80 w-full" />{/if}
     </Tabs.Content>
     <Tabs.Content value="current">

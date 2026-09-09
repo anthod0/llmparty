@@ -11,6 +11,7 @@ export const workflowDetail = writable<WorkflowDetailView | null>(null);
 export const workflowDetailLoading = writable(false);
 export const workflowDetailError = writable<string | null>(null);
 export const selectedWorkflowId = writable<string | null>(null);
+export const selectedWorkflowHistorySessionId = writable<string | null>(null);
 
 export async function loadWorkflows(options: LoadOptions = {}): Promise<WorkflowListItemView[]> {
   const showLoading = options.showLoading ?? true;
@@ -101,5 +102,9 @@ export function selectedWorkflowSessionIds(): string[] {
   const selectedId = get(selectedWorkflowId);
   const detail = get(workflowDetail);
   if (!selectedId || detail?.workflow_id !== selectedId) return [];
-  return detail.nodes.flatMap((node) => node.session_id ? [node.session_id] : []);
+  return [...new Set([
+    ...detail.nodes.flatMap((node) => node.session_id ? [node.session_id] : []),
+    detail.active_patch?.replanner_session_id,
+    get(selectedWorkflowHistorySessionId),
+  ].filter((id): id is string => !!id))];
 }

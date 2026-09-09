@@ -27,6 +27,8 @@ import type {
   WorkspaceRootView,
   WorkspaceView,
   WorkflowDetailView,
+  WorkflowPatchHistoryView,
+  WorkflowDocumentView,
   WorkflowGraphRevisionView,
   WorkflowListItemView,
 } from './types';
@@ -142,6 +144,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return envelope.data;
 }
 
+// Snapshot consumers coalesce refreshes. Bound reads so a stalled connection
+// cannot hold their in-flight slot forever, including while reading the body.
+function boundedReadRequest<T>(path: string, options: ReadRequestOptions): Promise<T> {
+  const timeout = AbortSignal.timeout(15_000);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  return request<T>(path, { ...options, signal });
+}
+
 export async function listAgentProfiles(includeArchived = false, options: ReadRequestOptions = {}): Promise<AgentProfileView[]> {
   const query = includeArchived ? '?include_archived=true' : '';
   return (await request<{ agent_profiles: AgentProfileView[] }>(`/agent-profiles${query}`, options)).agent_profiles;
@@ -191,11 +201,20 @@ export async function listWorkflows(limit = 50, options: ReadRequestOptions = {}
 }
 
 export async function getWorkflow(workflowId: string, options: ReadRequestOptions = {}): Promise<WorkflowDetailView> {
-  return (await request<{ workflow: WorkflowDetailView }>(`/workflows/${encodeURIComponent(workflowId)}`, options)).workflow;
+  return (await boundedReadRequest<{ workflow: WorkflowDetailView }>(`/workflows/${encodeURIComponent(workflowId)}`, options)).workflow;
 }
 
 export async function getWorkflowRevision(workflowId: string, revision: number, options: ReadRequestOptions = {}): Promise<WorkflowGraphRevisionView> {
   return (await request<{ revision: WorkflowGraphRevisionView }>(`/workflows/${encodeURIComponent(workflowId)}/revisions/${revision}`, options)).revision;
+}
+
+export async function listWorkflowPatches(workflowId: string, options: ReadRequestOptions = {}): Promise<WorkflowPatchHistoryView[]> {
+  return (await boundedReadRequest<{ patches: WorkflowPatchHistoryView[] }>(`/workflows/${encodeURIComponent(workflowId)}/patches`, options)).patches;
+}
+
+export async function getWorkflowDocument(workflowId: string, ref: string, options: ReadRequestOptions = {}): Promise<WorkflowDocumentView> {
+  const query = new URLSearchParams({ ref });
+  return (await boundedReadRequest<{ document: WorkflowDocumentView }>(`/workflows/${encodeURIComponent(workflowId)}/documents?${query}`, options)).document;
 }
 
 export async function pauseWorkflow(workflowId: string): Promise<WorkflowDetailView> {
@@ -304,8 +323,8 @@ export async function archiveSession(sessionId: string): Promise<SessionView> {
   return (await request<{ session: SessionView }>(`/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST', mutating: true })).session;
 }
 
-export async function getSession(sessionId: string): Promise<SessionView> {
-  return (await request<{ session: SessionView }>(`/sessions/${sessionId}`)).session;
+export async function getSession(sessionId: string, options: ReadRequestOptions = {}): Promise<SessionView> {
+  return (await boundedReadRequest<{ session: SessionView }>(`/sessions/${encodeURIComponent(sessionId)}`, options)).session;
 }
 
 // GET /sessions/:id/turns is read-only turn history. WebUI dispatch must use
