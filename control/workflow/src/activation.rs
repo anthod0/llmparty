@@ -178,6 +178,12 @@ async fn render_initial_task(
          {}\n\
          ## Workflow definition\n\n\
          The durable Workflow definition is available at `$PONTIA_WORKFLOW_FILE`.\n\n\
+         ## Replanning protocol\n\n\
+         If blocked by a plan-level issue, write the problem, evidence, and proposed changes to a UTF-8 file, then run:\n\n\
+         ```bash\n\
+         pontia workflow patch request --input <request-path>\n\
+         ```\n\n\
+         On success, stop work without submitting output; Pontia handles interruption and replanning.\n\n\
          ## Handoff protocol\n\n\
          Expected output: {}\n\n\
          Complete the work, then create a source file in the Session cwd containing the full output. \

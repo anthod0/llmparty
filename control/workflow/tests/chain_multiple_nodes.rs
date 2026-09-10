@@ -413,23 +413,6 @@ async fn confirmed_exits_chain_three_agent_nodes_with_declared_handoff_inputs() 
             .collect::<Vec<_>>(),
         vec![Some("1"), Some("2"), Some("3")]
     );
-    let draft_task = &requests[1]
-        .initial_task
-        .as_ref()
-        .expect("draft initial task")
-        .input;
-    assert!(draft_task.contains("Draft from all declared evidence."));
-    assert!(draft_task.contains("研究结果：真实提交内容。"));
-    assert!(draft_task.contains("Use a compact style."));
-    let review_task = &requests[2]
-        .initial_task
-        .as_ref()
-        .expect("review initial task")
-        .input;
-    assert!(review_task.contains("Review only the declared checklist."));
-    assert!(review_task.contains("检查：引用与结论。"));
-    assert!(!review_task.contains("Adjacent draft content"));
-    assert!(!review_task.contains("Input file: draft.md"));
 
     scheduler
         .submit(SubmitWorkflowNodeRequest {

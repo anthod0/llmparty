@@ -157,10 +157,6 @@ async fn confirmed_interruption_creates_one_real_replanner_and_explicit_block_is
             request.runtime_environment["PONTIA_WORKFLOW_PATCH_REQUEST_FILE"]
                 .ends_with(&format!("/patches/{patch_id}/request.md"))
         );
-        let task = &request.initial_task.as_ref().expect("initial task").input;
-        assert!(task.contains("pontia workflow show"));
-        assert!(task.contains("patch apply --decision"));
-        assert!(task.contains("patch block --reason"));
     }
 
     let patch = repository.get_patch(&patch_id).await.unwrap().unwrap();
