@@ -6,7 +6,7 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js'
   import WorkspaceBrowser from '../components/workspaces/WorkspaceBrowser.svelte'
   import type { WorkspaceRootView, WorkspaceView } from '../api/types'
-  import { browseWorkspaceRoot, deleteWorkspace, workspaceRoots, workspaces } from '../stores/workspaces'
+  import { browseWorkspaceRoot, deleteWorkspace, workspaceRoots, workspaces, workspacesError, workspacesLoading } from '../stores/workspaces'
 
   type WorkspaceAvailabilityProblem = {
     workspace: WorkspaceView
@@ -17,6 +17,9 @@
     root_id: string
     canonical_path: string
   }
+
+  let activeWorkspacesDialogOpen = false
+  $: activeWorkspaces = $workspaces.filter((workspace) => workspace.state === 'active')
 
   let unavailableWorkspacesDialogOpen = false
   let workspaceAvailabilityProblems: WorkspaceAvailabilityProblem[] = []
@@ -103,9 +106,12 @@
 </script>
 
 <section class="space-y-6">
-  <div class="space-y-2">
-    <h2 class="text-3xl font-semibold tracking-tight">Workspaces</h2>
-    <p class="max-w-3xl text-muted-foreground">Browse configured roots and register execution workspaces through the External API.</p>
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="space-y-2">
+      <h2 class="text-3xl font-semibold tracking-tight">Workspaces</h2>
+      <p class="max-w-3xl text-muted-foreground">Browse configured roots and register execution workspaces through the External API.</p>
+    </div>
+    <Button variant="outline" onclick={() => { activeWorkspacesDialogOpen = true }}>Active workspaces</Button>
   </div>
 
   {#if deleteError}
@@ -131,6 +137,34 @@
 
   <WorkspaceBrowser />
 </section>
+
+<Dialog.Root bind:open={activeWorkspacesDialogOpen}>
+  <Dialog.Content class="max-w-2xl">
+    <Dialog.Header>
+      <Dialog.Title>Active workspaces</Dialog.Title>
+      <Dialog.Description>Registered active workspaces across all roots.</Dialog.Description>
+    </Dialog.Header>
+    {#if $workspacesLoading}
+      <p class="text-sm text-muted-foreground" role="status">Loading active workspaces…</p>
+    {:else if $workspacesError}
+      <p class="text-sm text-destructive" role="alert">{$workspacesError}</p>
+    {:else if activeWorkspaces.length}
+      <ul class="max-h-[28rem] space-y-2 overflow-auto">
+        {#each activeWorkspaces as workspace (workspace.workspace_id)}
+          <li class="space-y-1 rounded-lg border p-3">
+            <p class="break-all font-medium">{workspace.name ?? workspace.display_path}</p>
+            <p class="break-all text-xs text-muted-foreground">{workspace.canonical_path}</p>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="text-sm text-muted-foreground">No active workspaces.</p>
+    {/if}
+    <Dialog.Footer>
+      <Button variant="outline" onclick={() => { activeWorkspacesDialogOpen = false }}>Close</Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
 
 <Dialog.Root bind:open={unavailableWorkspacesDialogOpen}>
   <Dialog.Content class="max-w-2xl">

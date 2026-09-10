@@ -116,7 +116,8 @@ test('renders a single root browser with active workspace controls in the direct
 
   expect(await screen.findByText('Browser')).toBeInTheDocument();
   expect(screen.queryByText('Root browser')).not.toBeInTheDocument();
-  expect(screen.queryByText('Active workspaces')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Active workspaces' })).toBeInTheDocument();
+  expect(screen.queryByRole('dialog', { name: 'Active workspaces' })).not.toBeInTheDocument();
   expect(screen.queryByTestId('active-workspaces-list')).not.toBeInTheDocument();
 
   const browserCard = screen.getByText('Browser').closest('[data-slot="card"]');
@@ -134,6 +135,37 @@ test('renders a single root browser with active workspace controls in the direct
   expect(container.querySelector('.workspace-folder-preview')).not.toBeInTheDocument();
   expect(mocks.loadWorkspaceGitStatus).not.toHaveBeenCalled();
   expect(screen.queryByRole('button', { name: /refresh git status/i })).not.toBeInTheDocument();
+});
+
+test('lists active workspaces across roots in a dismissible dialog', async () => {
+  const user = userEvent.setup();
+  mocks.workspaces.set([
+    workspace(),
+    workspace({ workspace_id: 'other', name: 'Other project', canonical_path: '/elsewhere/project' }),
+    workspace({ workspace_id: 'inactive', name: 'Inactive project', state: 'deleted' }),
+  ]);
+  render(WorkspacesPage);
+
+  await user.click(screen.getByRole('button', { name: 'Active workspaces' }));
+  const dialog = screen.getByRole('dialog', { name: 'Active workspaces' });
+  expect(within(dialog).getAllByRole('listitem')).toHaveLength(2);
+  expect(within(dialog).getByText('pontia')).toBeInTheDocument();
+  expect(within(dialog).getByText('/repo/pontia')).toBeInTheDocument();
+  expect(within(dialog).getByText('Other project')).toBeInTheDocument();
+  expect(within(dialog).getByText('/elsewhere/project')).toBeInTheDocument();
+  expect(within(dialog).queryByText('Inactive project')).not.toBeInTheDocument();
+
+  await user.click(within(dialog).getAllByRole('button', { name: 'Close', exact: true })[0]);
+  expect(screen.queryByRole('dialog', { name: 'Active workspaces' })).not.toBeInTheDocument();
+});
+
+test('shows an empty active workspace list', async () => {
+  const user = userEvent.setup();
+  mocks.workspaces.set([]);
+  render(WorkspacesPage);
+
+  await user.click(screen.getByRole('button', { name: 'Active workspaces' }));
+  expect(within(screen.getByRole('dialog', { name: 'Active workspaces' })).getByText('No active workspaces.')).toBeInTheDocument();
 });
 
 test('renders a compact directory/action table and opens directories through the folder-name button', async () => {
