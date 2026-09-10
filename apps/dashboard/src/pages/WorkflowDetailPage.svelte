@@ -1,10 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import * as Tabs from '$lib/components/ui/tabs/index.js'
   import WorkflowVersions from './workflows/WorkflowVersions.svelte'
   import WorkflowReplanning from './workflows/WorkflowReplanning.svelte'
-  import WorkflowSession from './workflows/WorkflowSession.svelte'
-  import { revisionSelection } from './workflows/revisions'
+  import { revisionSelection, workflowRevisions } from './workflows/revisions'
   import { CircleAlert, Pause, Play, Workflow } from '@lucide/svelte'
   import { navigate } from '$lib/navigation'
   import { cn } from '$lib/utils.js'
@@ -22,21 +20,16 @@
   let { routeWorkflowId }: { routeWorkflowId: string } = $props()
   let query = $state(new URLSearchParams(window.location.search))
   let requestedPhase = $derived(query.get('phase'))
-  let activeTab = $derived(query.get('tab') === 'replanning' ? 'replanning' : query.get('tab') === 'versions' || (!query.has('tab') && query.has('revision')) ? 'versions' : 'current')
 
-  function updateQuery(changes: Record<string, string | null>, replaceState = false): void {
-    void navigate(`/workflows/${routeWorkflowId}`, { ...Object.fromEntries(query), ...changes }, { replaceState })
+  function updateQuery(changes: Record<string, string | null>): void {
+    void navigate(`/workflows/${routeWorkflowId}`, { revision: query.get('revision'), phase: requestedPhase, ...changes })
+  }
+
+  function selectRevision(value: number): void {
+    updateQuery({ revision: value === snapshot?.current_revision ? null : String(value), phase: null })
   }
   let snapshot = $derived($workflowDetail?.workflow_id === routeWorkflowId ? $workflowDetail : null)
   let revision = $derived(snapshot ? revisionSelection(query.get('revision'), snapshot.current_revision) : null)
-  $effect(() => {
-    if (activeTab === 'versions' && !query.has('revision') && snapshot) {
-      const next = new URLSearchParams(query)
-      next.set('revision', String(snapshot.current_revision))
-      query = next
-      void navigate(`/workflows/${routeWorkflowId}`, Object.fromEntries(next), { replaceState: true })
-    }
-  })
   let phases = $derived(groupWorkflowPhases(snapshot?.nodes ?? [], snapshot?.current_node_id ?? null))
   let explicitOrdinal = $derived(selectedPhaseOrdinal(requestedPhase, phases))
   let selectedPhase = $derived(phases.find((phase) => phase.ordinal === explicitOrdinal) ?? phases.find((phase) => phase.current) ?? phases[0] ?? null)
@@ -138,32 +131,19 @@
     <Alert.Root variant="destructive"><CircleAlert class="size-4" /><Alert.Title>Workflow failed</Alert.Title><Alert.Description>{snapshot.failure_message}</Alert.Description></Alert.Root>
   {/if}
 
-  {#if snapshot}
-    <Card.Root class="gap-2 p-4" aria-label="Current Replanner">
-      <h3 class="font-semibold">Current Replanner</h3>
-      {#if snapshot.active_patch}
-        <div class="flex flex-wrap items-center gap-2 text-sm"><span class="break-all font-mono text-xs">Patch {snapshot.active_patch.patch_id}</span><Badge variant="secondary">Patch state: {snapshot.active_patch.state}</Badge><span>Based on v{snapshot.active_patch.base_revision}</span></div>
-        {#if snapshot.active_patch.replanner_session_id}
-          <WorkflowSession sessionId={snapshot.active_patch.replanner_session_id} {snapshot} />
-        {:else}<p class="text-sm text-muted-foreground">Waiting for Replanner Session creation.</p>{/if}
-      {:else}<p class="text-sm text-muted-foreground">No active replanning.</p>{/if}
-    </Card.Root>
-  {/if}
-
-  <Tabs.Root value={activeTab} onValueChange={(value) => updateQuery({ tab: value, revision: value === 'versions' ? query.get('revision') ?? String(snapshot?.current_revision ?? 1) : query.get('revision') })}>
-    <Tabs.List aria-label="Workflow detail"><Tabs.Trigger value="current">Current workflow</Tabs.Trigger><Tabs.Trigger value="versions">Versions</Tabs.Trigger><Tabs.Trigger value="replanning">Replanning records</Tabs.Trigger></Tabs.List>
-    <Tabs.Content value="versions">
-      {#if snapshot && activeTab === 'versions'}
-        <WorkflowVersions workflowId={routeWorkflowId} currentRevision={snapshot.current_revision} {revision} onselect={(value) => updateQuery({ tab: 'versions', revision: String(value) })} oncurrent={() => updateQuery({ tab: 'current', revision: null })} />
-      {:else if $workflowDetailLoading}<Skeleton class="h-80 w-full" />{/if}
-    </Tabs.Content>
-    <Tabs.Content value="replanning">
-      {#if snapshot && activeTab === 'replanning'}
-        <WorkflowReplanning {snapshot} patchId={query.get('patch')} onselect={(id, replace) => updateQuery({ tab: 'replanning', patch: id }, replace)} onrevision={(value) => updateQuery({ tab: 'versions', revision: String(value) })} />
-      {:else if $workflowDetailLoading}<Skeleton class="h-80 w-full" />{/if}
-    </Tabs.Content>
-    <Tabs.Content value="current">
-  {#if $workflowDetailLoading && !snapshot}
+  <div class="space-y-3">
+    {#if snapshot}
+      <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Workflow versions">
+        {#each workflowRevisions(snapshot.current_revision) as version}
+          <Button variant={revision === version ? 'secondary' : 'ghost'} aria-pressed={revision === version} onclick={() => selectRevision(version)}>
+            v{version} {#if version === snapshot.current_revision}<Badge variant="outline">Current</Badge>{/if}
+          </Button>
+        {/each}
+      </div>
+    {/if}
+  {#if snapshot && revision !== snapshot.current_revision}
+    <WorkflowVersions workflowId={routeWorkflowId} {revision} requestedPhase={requestedPhase} onphase={(value) => updateQuery({ phase: String(value) })} />
+  {:else if $workflowDetailLoading && !snapshot}
     <div class="space-y-3"><Skeleton class="h-24 w-full" /><Skeleton class="h-80 w-full" /></div>
   {:else if snapshot && selectedPhase}
     <Card.Root class="overflow-hidden">
@@ -208,9 +188,14 @@
         </div>
       </div>
     </Card.Root>
+  {:else if snapshot}
+    <Card.Root><Empty.Root><Empty.Header><Empty.Title>No agents in this workflow</Empty.Title></Empty.Header></Empty.Root></Card.Root>
   {:else if !$workflowDetailLoading && !$workflowDetailError}
     <Empty.Root><Empty.Header><Empty.Title>Workflow unavailable</Empty.Title><Empty.Description>No observable Workflow snapshot was returned.</Empty.Description></Empty.Header></Empty.Root>
   {/if}
-    </Tabs.Content>
-  </Tabs.Root>
+  </div>
+
+  {#if snapshot && revision !== null}
+    <WorkflowReplanning {snapshot} {revision} onrevision={selectRevision} />
+  {/if}
 </section>

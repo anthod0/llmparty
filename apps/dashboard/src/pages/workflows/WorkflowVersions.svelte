@@ -7,11 +7,12 @@
   import * as Collapsible from '$lib/components/ui/collapsible/index.js'
   import * as Empty from '$lib/components/ui/empty/index.js'
   import { Skeleton } from '$lib/components/ui/skeleton/index.js'
-  import { createRevisionReader, workflowRevisions } from './revisions'
+  import { Separator } from '$lib/components/ui/separator/index.js'
+  import { createRevisionReader } from './revisions'
 
-  let { workflowId, currentRevision, revision, onselect, oncurrent }: {
-    workflowId: string; currentRevision: number; revision: number | null;
-    onselect: (revision: number) => void; oncurrent: () => void;
+  let { workflowId, revision, requestedPhase = null, onphase }: {
+    workflowId: string; revision: number | null; requestedPhase?: string | null;
+    onphase: (ordinal: number) => void;
   } = $props()
   const reader = createRevisionReader()
   let selectedWorkflow = $derived(workflowId)
@@ -20,38 +21,53 @@
     if (selectedRevision !== null) void reader.load(selectedWorkflow, selectedRevision)
     return () => reader.cancel()
   })
-  let phases = $derived([...new Set(($reader.detail?.nodes ?? []).map(node => node.phase))])
+  let phases = $derived.by(() => {
+    const groups: { ordinal: number; name: string; nodes: NonNullable<typeof $reader.detail>['nodes'] }[] = []
+    for (const node of $reader.detail?.nodes ?? []) {
+      let phase = groups.at(-1)
+      if (!phase || phase.name !== node.phase) {
+        phase = { ordinal: groups.length + 1, name: node.phase, nodes: [] }
+        groups.push(phase)
+      }
+      phase.nodes.push(node)
+    }
+    return groups
+  })
+  let selectedPhase = $derived(phases.find(phase => String(phase.ordinal) === requestedPhase) ?? phases[0] ?? null)
 </script>
 
 <Card.Root class="overflow-hidden">
   <div class="grid min-h-[28rem] md:grid-cols-[17rem_1fr]">
-    <aside class="space-y-1 border-b bg-muted/20 p-3 md:border-r md:border-b-0" aria-label="Workflow versions">
-      <h3 class="px-2 py-2 text-xs font-semibold uppercase">Versions</h3>
-      {#each workflowRevisions(currentRevision) as version}
-        <Button variant={revision === version ? 'secondary' : 'ghost'} class="w-full justify-between" aria-current={revision === version ? 'true' : undefined} onclick={() => onselect(version)}>
-          v{version} {#if version === currentRevision}<Badge variant="outline">Current</Badge>{/if}
+    <aside class="space-y-1 border-b bg-muted/20 p-3 md:border-r md:border-b-0" aria-label="Phases">
+      <div class="px-2 py-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Phases</div>
+      {#each phases as phase (phase.ordinal)}
+        <Button variant={selectedPhase?.ordinal === phase.ordinal ? 'secondary' : 'ghost'} class="h-auto w-full justify-start px-2 py-2 text-left" onclick={() => onphase(phase.ordinal)}>
+          <span class="w-3 shrink-0"></span>
+          <span class="w-5 shrink-0 text-xs text-muted-foreground">{phase.ordinal}</span>
+          <span class="min-w-0 flex-1 truncate">{phase.name || 'No phase'}</span>
         </Button>
       {/each}
     </aside>
     <div class="min-w-0 space-y-4 p-4 md:p-6">
       <div class="flex flex-wrap items-center gap-2">
-        {#if revision !== null}<h3 class="text-lg font-semibold">Viewing v{revision}</h3><Badge variant="secondary">{revision === currentRevision ? 'Current' : 'Historical'}</Badge><Badge variant="outline">Read-only</Badge>{/if}
-        <Button variant="outline" onclick={oncurrent}>Back to current workflow</Button>
+        {#if revision !== null}<h3 class="text-lg font-semibold">Viewing v{revision}</h3><Badge variant="secondary">Historical</Badge><Badge variant="outline">Read-only</Badge>{/if}
       </div>
       <p class="text-sm text-muted-foreground">Definition only. Session links do not represent execution state at this revision.</p>
       {#if revision === null}
-        <Alert.Root variant="destructive"><Alert.Title>Invalid or unavailable revision</Alert.Title><Alert.Description>Select an existing version from the list.</Alert.Description></Alert.Root>
+        <Alert.Root variant="destructive"><Alert.Title>Invalid or unavailable revision</Alert.Title><Alert.Description>Select an existing version below.</Alert.Description></Alert.Root>
       {:else if $reader.loading}
         <div role="status" aria-label="Loading revision"><Skeleton class="h-64 w-full" /></div>
       {:else if $reader.error}
         <Alert.Root variant="destructive"><Alert.Title>Could not load revision</Alert.Title><Alert.Description>{$reader.error}</Alert.Description></Alert.Root>
         <Button variant="outline" onclick={() => revision !== null && reader.load(workflowId, revision)}>Retry revision</Button>
       {:else if $reader.detail}
-        {#each phases as phase}
-          <section class="space-y-3">
-            <h4 class="font-semibold">{phase || 'No phase'}</h4>
-            {#each $reader.detail.nodes.filter(node => node.phase === phase) as node (node.node_id)}
-              <Card.Root class="gap-3 p-4">
+        {#if selectedPhase}
+          <section>
+            <div class="mb-4"><h3 class="text-lg font-semibold">{selectedPhase.name || 'No phase'}</h3><p class="text-sm text-muted-foreground">{selectedPhase.nodes.length} {selectedPhase.nodes.length === 1 ? 'agent' : 'agents'}</p></div>
+            <Separator class="mb-2" />
+            <div class="divide-y">
+            {#each selectedPhase.nodes as node (node.node_id)}
+              <div class="space-y-3 px-2 py-4">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <div><h5 class="font-medium">{node.title}</h5><p class="text-xs text-muted-foreground">{node.node_type} · {node.node_id}</p></div>
                   {#if node.retired_revision !== null}<Badge variant="outline">Removed in v{node.retired_revision}</Badge>{/if}
@@ -70,12 +86,13 @@
                     </dl>
                   </Collapsible.Content>
                 </Collapsible.Root>
-              </Card.Root>
+              </div>
             {/each}
+            </div>
           </section>
         {:else}
           <Empty.Root><Empty.Header><Empty.Title>No nodes in this revision</Empty.Title></Empty.Header></Empty.Root>
-        {/each}
+        {/if}
       {/if}
     </div>
   </div>

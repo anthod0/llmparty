@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import WorkflowDetailPage from '../src/pages/WorkflowDetailPage.svelte';
 import { workflowDetail, workflowDetailError, workflowDetailLoading } from '../src/stores/workflows';
 import type { WorkflowDetailView } from '../src/api/types';
-const mocks = vi.hoisted(() => ({ getWorkflow: vi.fn(), getWorkflowRevision: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getWorkflow: vi.fn(), getWorkflowRevision: vi.fn(), listWorkflowPatches: vi.fn() }));
 vi.mock('../src/api/client', () => ({ ...mocks, listWorkflows: vi.fn(), pauseWorkflow: vi.fn(), resumeWorkflow: vi.fn() }));
 vi.mock('$lib/navigation', () => ({ navigate: async (path: string, query: Record<string, string | null> = {}, options: { replaceState?: boolean } = {}) => {
   const url = new URL(path, window.location.origin);
@@ -15,11 +15,12 @@ const snapshot: WorkflowDetailView = { workflow_id: 'wf', title: 'Example', stat
 beforeEach(() => {
   vi.clearAllMocks(); workflowDetail.set(null); workflowDetailError.set(null); workflowDetailLoading.set(false);
   mocks.getWorkflow.mockResolvedValue(snapshot);
+  mocks.listWorkflowPatches.mockResolvedValue([]);
   mocks.getWorkflowRevision.mockImplementation(async (id, revision) => ({ workflow_id: id, revision, current: false, nodes: [] }));
 });
 function visit(query: string) { window.history.replaceState({}, '', `/workflows/wf${query}`); window.dispatchEvent(new PopStateEvent('popstate')); }
 
-test('direct history URL, tab navigation and popstate retain phase and independent current revision', async () => {
+test('version buttons and popstate select history independently of the current revision', async () => {
   visit('?revision=2&phase=1');
   const view = render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   expect(await screen.findByText('Viewing v2')).toBeInTheDocument();
@@ -27,21 +28,29 @@ test('direct history URL, tab navigation and popstate retain phase and independe
   workflowDetail.set({ ...snapshot, current_revision: 4 });
   expect(await screen.findByText('Current v4')).toBeInTheDocument();
   expect(screen.getByText('Viewing v2')).toBeInTheDocument();
-  await fireEvent.click(screen.getByRole('tab', { name: 'Current workflow' }));
+  expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+  expect(screen.queryByText('Current Replanner')).not.toBeInTheDocument();
+  const versions = screen.getByRole('group', { name: 'Workflow versions' });
+  expect(versions.compareDocumentPosition(screen.getByText('Viewing v2')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(view.container.querySelectorAll('[data-slot="card"]')).toHaveLength(1);
+  await fireEvent.click(screen.getByRole('button', { name: 'v4 Current' }));
   expect(await screen.findByText('Current writer')).toBeInTheDocument();
-  expect(new URLSearchParams(window.location.search).get('phase')).toBe('1');
-  visit('?tab=versions&revision=1&phase=1');
+  expect(new URLSearchParams(window.location.search).has('phase')).toBe(false);
+  await fireEvent.click(screen.getByRole('button', { name: 'v1' }));
+  expect(await screen.findByText('Viewing v1')).toBeInTheDocument();
+  visit('?revision=1&phase=1');
   expect(await screen.findByText('Viewing v1')).toBeInTheDocument();
   view.unmount();
   render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   expect(await screen.findByText('Viewing v1')).toBeInTheDocument();
 });
 
-test('versions URL without a revision is pinned before subsequent snapshot updates', async () => {
-  visit('?tab=versions&phase=1');
+test('default selection follows the current workflow without fetching history', async () => {
+  visit('?phase=1');
   render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
-  await waitFor(() => expect(new URLSearchParams(window.location.search).get('revision')).toBe('3'));
+  expect(await screen.findByText('Current writer')).toBeInTheDocument();
   workflowDetail.set({ ...snapshot, current_revision: 4 });
   expect(await screen.findByText('Current v4')).toBeInTheDocument();
-  expect(screen.getByText('Viewing v3')).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'v4 Current' })).toHaveAttribute('aria-pressed', 'true'));
+  expect(mocks.getWorkflowRevision).not.toHaveBeenCalled();
 });

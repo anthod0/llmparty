@@ -40,7 +40,7 @@ test('late responses and failures cannot overwrite a new workflow/revision or a 
 
 test('empty definitions, errors and retry are explicit; only selected revision is fetched', async () => {
   mocks.getWorkflowRevision.mockRejectedValueOnce(new Error('Not found'));
-  render(WorkflowVersions, { workflowId: 'wf', currentRevision: 3, revision: 2, onselect: vi.fn(), oncurrent: vi.fn() });
+  render(WorkflowVersions, { workflowId: 'wf', revision: 2, onphase: vi.fn() });
   expect(await screen.findByText('Not found')).toBeInTheDocument();
   await fireEvent.click(screen.getByRole('button', { name: 'Retry revision' }));
   expect(await screen.findByText('No nodes in this revision')).toBeInTheDocument();
@@ -48,10 +48,10 @@ test('empty definitions, errors and retry are explicit; only selected revision i
   expect(mocks.getWorkflowRevision.mock.calls.every(call => call[1] === 2)).toBe(true);
 });
 
-test('history is read-only, preserves session navigation, and current revision updates do not reload history', async () => {
+test('history is read-only, preserves session navigation, and phase changes do not reload history', async () => {
   mocks.getWorkflowRevision.mockResolvedValue({ ...detail(2), nodes: [{ node_id: 'old-node', parent_node_id: null, node_type: 'agent', session_id: 'session', turn_ids: [], phase: 'Build', title: 'Old writer', instructions: 'Write carefully', inputs: ['input.md'], output: 'output.md', execution_profile_id: 'writer', execution_profile_version: '1', introduced_revision: 1, retired_revision: 3 }] });
-  const onselect = vi.fn(); const oncurrent = vi.fn();
-  const view = render(WorkflowVersions, { workflowId: 'wf', currentRevision: 3, revision: 2, onselect, oncurrent });
+  const onphase = vi.fn();
+  const view = render(WorkflowVersions, { workflowId: 'wf', revision: 2, onphase });
   expect(await screen.findByText('Old writer')).toBeInTheDocument();
   expect(screen.getByText('Historical')).toBeInTheDocument();
   expect(screen.getByText('Read-only')).toBeInTheDocument();
@@ -61,20 +61,18 @@ test('history is read-only, preserves session navigation, and current revision u
   expect(await screen.findByText('Write carefully')).toBeInTheDocument();
   await fireEvent.click(screen.getByText('Open chat →'));
   expect(mocks.navigate).toHaveBeenCalledWith('/chat/session');
-  await view.rerender({ workflowId: 'wf', currentRevision: 4, revision: 2, onselect, oncurrent });
+  await view.rerender({ workflowId: 'wf', revision: 2, onphase, requestedPhase: '1' });
   expect(screen.getByText('Viewing v2')).toBeInTheDocument();
   expect(mocks.getWorkflowRevision).toHaveBeenCalledTimes(1);
-  await fireEvent.click(screen.getByRole('button', { name: 'v1' }));
-  expect(onselect).toHaveBeenCalledWith(1);
-  await fireEvent.click(screen.getByText('Back to current workflow'));
-  expect(oncurrent).toHaveBeenCalled();
+  await fireEvent.click(screen.getByRole('button', { name: '1 Build' }));
+  expect(onphase).toHaveBeenCalledWith(1);
 });
 
 test('invalid links do not fetch a definition and loading is visible', async () => {
-  const view = render(WorkflowVersions, { workflowId: 'wf', currentRevision: 3, revision: null, onselect: vi.fn(), oncurrent: vi.fn() });
+  const view = render(WorkflowVersions, { workflowId: 'wf', revision: null, onphase: vi.fn() });
   expect(screen.getByText('Invalid or unavailable revision')).toBeInTheDocument();
   expect(mocks.getWorkflowRevision).not.toHaveBeenCalled();
   mocks.getWorkflowRevision.mockImplementation(() => new Promise(() => {}));
-  await view.rerender({ workflowId: 'wf', currentRevision: 3, revision: 1, onselect: vi.fn(), oncurrent: vi.fn() });
+  await view.rerender({ workflowId: 'wf', revision: 1, onphase: vi.fn() });
   await waitFor(() => expect(screen.getByRole('status', { name: 'Loading revision' })).toBeInTheDocument());
 });

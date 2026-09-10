@@ -5,7 +5,7 @@ import WorkflowDetailPage from '../src/pages/WorkflowDetailPage.svelte';
 import WorkflowDocument from '../src/pages/workflows/WorkflowDocument.svelte';
 import WorkflowSession from '../src/pages/workflows/WorkflowSession.svelte';
 import { createPatchHistoryReader } from '../src/pages/workflows/patches';
-import { workflowDetail, workflowDetailError, workflowDetailLoading, selectedWorkflowSessionIds, selectedWorkflowHistorySessionId } from '../src/stores/workflows';
+import { workflowDetail, workflowDetailError, workflowDetailLoading, selectedWorkflowSessionIds, selectedWorkflowHistorySessionIds } from '../src/stores/workflows';
 import type { WorkflowDetailView, WorkflowPatchHistoryView } from '../src/api/types';
 
 const mocks = vi.hoisted(() => ({ getWorkflow: vi.fn(), getWorkflowRevision: vi.fn(), listWorkflowPatches: vi.fn(), getWorkflowDocument: vi.fn(), getSession: vi.fn() }));
@@ -26,10 +26,10 @@ const patch = (id = 'p1', overrides: Partial<WorkflowPatchHistoryView> = {}): Wo
 const snapshot = (overrides: Partial<WorkflowDetailView> = {}): WorkflowDetailView => ({
   workflow_id: 'wf', title: 'Example', state: 'replanning', current_revision: 3, active_patch: patch(), failure_message: null, cwd: '/workspace', agent_submitted_count: 0, agent_total_count: 0, current_node_id: null, started_at: null, completed_at: null, created_at: '', updated_at: '', elapsed_ms: 0, nodes: [], ...overrides,
 });
-function visit(query = '?tab=replanning&patch=p1') { window.history.replaceState({}, '', `/workflows/wf${query}`); window.dispatchEvent(new PopStateEvent('popstate')); }
+function visit(query = '') { window.history.replaceState({}, '', `/workflows/wf${query}`); window.dispatchEvent(new PopStateEvent('popstate')); }
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (error: Error) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 beforeEach(() => {
-  vi.resetAllMocks(); workflowDetail.set(null); workflowDetailError.set(null); workflowDetailLoading.set(false); selectedWorkflowHistorySessionId.set(null);
+  vi.resetAllMocks(); workflowDetail.set(null); workflowDetailError.set(null); workflowDetailLoading.set(false); selectedWorkflowHistorySessionIds.set([]);
   mocks.getWorkflow.mockResolvedValue(snapshot());
   mocks.listWorkflowPatches.mockResolvedValue([patch()]);
   mocks.getSession.mockImplementation(async (id: string) => ({ session_id: id, state: 'busy' }));
@@ -38,78 +38,113 @@ beforeEach(() => {
   visit();
 });
 
-test('current Replanner remains visible on all tabs with independent workflow, patch and Session state', async () => {
-  visit('?tab=versions&revision=2');
+test('Replanning appears below the workflow only for its base revision, without tabs or a global Replanner', async () => {
+  visit('?revision=2');
   render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   expect(await screen.findByText('Viewing v2')).toBeInTheDocument();
+  await waitFor(() => expect(mocks.listWorkflowPatches).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole('region', { name: 'Replanning records' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Current Replanner')).not.toBeInTheDocument();
+  expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+  expect(mocks.getSession).not.toHaveBeenCalled();
+  await fireEvent.click(screen.getByRole('button', { name: 'v3 Current' }));
   expect(await screen.findByText('Session now: busy')).toBeInTheDocument();
-  expect(screen.getByText('Current v3')).toBeInTheDocument();
-  expect(screen.getByText('Based on v3')).toBeInTheDocument();
-  expect(mocks.listWorkflowPatches).not.toHaveBeenCalled();
-  expect(window.location.search).toBe('?tab=versions&revision=2');
-  expect(screen.getByText('replanning')).toBeInTheDocument();
+  expect(screen.getByText('Current request')).toBeInTheDocument();
+  expect(screen.getByText('Patch state: planning · Outcome: Not recorded')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
-  for (const name of ['Current workflow', 'Replanning records', 'Versions']) {
-    await fireEvent.click(screen.getByRole('tab', { name }));
-    expect(screen.getByRole('button', { name: 'Open chat', exact: true })).toBeInTheDocument();
-  }
+  const workflow = screen.getByText('No agents in this workflow');
+  expect(workflow.compareDocumentPosition(screen.getByRole('region', { name: 'Replanning records' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(selectedWorkflowSessionIds()).toContain('replanner');
+  await fireEvent.click(screen.getByRole('button', { name: 'v2' }));
+  expect(screen.queryByRole('region', { name: 'Replanning records' })).not.toBeInTheDocument();
+  expect(get(selectedWorkflowHistorySessionIds)).toEqual([]);
 });
 
 test('Session creation, replacement, applied revision and clearing active patch follow snapshots only', async () => {
   mocks.getWorkflow.mockResolvedValue(snapshot({ active_patch: patch('p1', { replanner_session_id: null }) }));
+  mocks.listWorkflowPatches.mockResolvedValue([patch('p1', { replanner_session_id: null })]);
   render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   expect(await screen.findByText('Waiting for Replanner Session creation.')).toBeInTheDocument();
   expect(mocks.getSession).not.toHaveBeenCalled();
   expect(screen.queryByText('Current v4')).not.toBeInTheDocument();
+  mocks.listWorkflowPatches.mockResolvedValue([patch()]);
   workflowDetail.set(snapshot());
   expect(await screen.findByText('Session now: busy')).toBeInTheDocument();
+  mocks.listWorkflowPatches.mockResolvedValue([patch('p2', { replanner_session_id: 'new-replanner' })]);
   workflowDetail.set(snapshot({ active_patch: patch('p2', { replanner_session_id: 'new-replanner' }) }));
   await waitFor(() => expect(mocks.getSession).toHaveBeenCalledWith('new-replanner', expect.anything()));
   const applied = patch('p1', { state: 'applied', outcome: 'applied', result_revision: 4 });
   mocks.listWorkflowPatches.mockResolvedValue([applied]);
   workflowDetail.set(snapshot({ state: 'running', current_revision: 4, active_patch: null }));
-  expect(await screen.findByText('No active replanning.')).toBeInTheDocument();
   expect(await screen.findByText('Current v4')).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Replanning records' })).not.toBeInTheDocument();
+  await fireEvent.click(screen.getByRole('button', { name: 'v3' }));
   expect(await screen.findByRole('button', { name: 'View revision v3 → v4' })).toBeInTheDocument();
   expect(screen.getByText('Historical request')).toBeInTheDocument();
   expect(within(screen.getByRole('region', { name: 'Replanner' })).getByRole('button', { name: 'Open chat' })).toBeInTheDocument();
 });
 
-test('all outcomes are listed newest first; historical selection survives updates and revision navigation', async () => {
+test('all records for a base revision are shown newest first and result links switch both workflow and records', async () => {
   const applied = patch('old', { state: 'applied', outcome: 'applied', base_revision: 1, result_revision: 2, replanner_session_id: 'old-session' });
-  mocks.listWorkflowPatches.mockResolvedValue([applied, patch('blocked', { state: 'blocked', requested_at: '2026-02-01T00:00:00Z' }), patch('rejected', { state: 'rejected', outcome: 'rejected', result_revision: 3, requested_at: '2026-03-01T00:00:00Z' }), patch('p1', { requested_at: '2026-04-01T00:00:00Z' })]);
-  visit('?tab=replanning&patch=old&phase=1');
-  render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
+  mocks.listWorkflowPatches.mockResolvedValue([applied, patch('blocked', { base_revision: 1, state: 'blocked', replanner_session_id: 'blocked-session', requested_at: '2026-02-01T00:00:00Z' }), patch('rejected', { base_revision: 2, state: 'rejected', outcome: 'rejected', result_revision: 2 }), patch()]);
+  visit('?revision=1&phase=1');
+  const view = render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   expect(await screen.findByText('Patch old')).toBeInTheDocument();
-  const buttons = within(screen.getByRole('complementary', { name: 'Patch requests' })).getAllByRole('button');
-  expect(buttons.map(button => button.textContent?.split(' ')[0])).toHaveLength(4);
-  expect(buttons[0]).toHaveTextContent('p1'); expect(buttons[3]).toHaveTextContent('old');
+  const records = within(screen.getByRole('region', { name: 'Replanning records' })).getAllByRole('region', { name: /^Patch (blocked|old)$/ });
+  expect(records.map(record => record.getAttribute('aria-label'))).toEqual(['Patch blocked', 'Patch old']);
+  expect(screen.queryByText('Patch p1')).not.toBeInTheDocument();
+  expect(screen.queryByText('Patch rejected')).not.toBeInTheDocument();
   expect(await screen.findByText('old-session')).toBeInTheDocument();
-  expect(selectedWorkflowSessionIds()).toContain('old-session');
+  expect(selectedWorkflowSessionIds()).toEqual(expect.arrayContaining(['old-session', 'blocked-session']));
   workflowDetail.set(snapshot({ current_revision: 4 }));
   expect(await screen.findByText('Current v4')).toBeInTheDocument();
   expect(screen.getByText('Patch old')).toBeInTheDocument();
   await fireEvent.click(screen.getByRole('button', { name: 'View revision v1 → v2' }));
   expect(await screen.findByText('Viewing v2')).toBeInTheDocument();
-  expect(window.location.search).toContain('phase=1'); expect(window.location.search).toContain('patch=old');
-  visit('?tab=replanning&patch=rejected');
+  expect(window.location.search).toBe('?revision=2');
   expect(await screen.findByText('Patch rejected')).toBeInTheDocument();
-  expect(screen.getByText('No new revision. Version remained v3.')).toBeInTheDocument();
+  expect(screen.queryByText('Patch old')).not.toBeInTheDocument();
+  expect(selectedWorkflowSessionIds()).not.toContain('old-session');
+  expect(screen.getByText('No new revision. Version remained v2.')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /View revision/ })).not.toBeInTheDocument();
+  visit('?revision=1');
+  expect(await screen.findByText('Patch old')).toBeInTheDocument();
+  view.unmount();
+  expect(get(selectedWorkflowHistorySessionIds)).toEqual([]);
 });
 
-test('initial selection is URL-pinned; empty, missing record, list failure and retry are local', async () => {
-  visit('?tab=replanning');
+test('empty records stay hidden; list errors and retry do not replace the workflow', async () => {
   mocks.listWorkflowPatches.mockRejectedValueOnce(new Error('History unavailable')).mockResolvedValueOnce([]).mockResolvedValue([patch()]);
   render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   expect(await screen.findByText('History unavailable')).toBeInTheDocument();
+  expect(screen.getByText('No agents in this workflow')).toBeInTheDocument();
   await fireEvent.click(screen.getByRole('button', { name: 'Retry records' }));
-  expect(await screen.findByText('No replanning requests.')).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByText('Loading replanning records…')).not.toBeInTheDocument());
+  expect(screen.queryByRole('region', { name: 'Replanning records' })).not.toBeInTheDocument();
+  expect(screen.queryByText('No replanning requests.')).not.toBeInTheDocument();
   workflowDetail.set(snapshot());
-  await waitFor(() => expect(window.location.search).toContain('patch=p1'));
-  visit('?tab=replanning&patch=missing');
-  expect(await screen.findByText('Patch not found: missing. Select an available request.')).toBeInTheDocument();
+  expect(await screen.findByText('Patch p1')).toBeInTheDocument();
+  expect(window.location.search).toBe('');
+});
+
+test('empty versions stay hidden during background refreshes and invalid revisions hide records', async () => {
+  const initial = deferred<WorkflowPatchHistoryView[]>();
+  mocks.listWorkflowPatches.mockReturnValueOnce(initial.promise);
+  render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
+  expect(await screen.findByText('Loading replanning records…')).toBeInTheDocument();
+  initial.resolve([]);
+  await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+  const refresh = deferred<WorkflowPatchHistoryView[]>();
+  mocks.listWorkflowPatches.mockReturnValueOnce(refresh.promise);
+  workflowDetail.set(snapshot());
+  await waitFor(() => expect(mocks.listWorkflowPatches).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  refresh.resolve([patch()]);
+  expect(await screen.findByText('Patch p1')).toBeInTheDocument();
+  visit('?revision=invalid');
+  expect(await screen.findByText('Invalid or unavailable revision')).toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Replanning records' })).not.toBeInTheDocument();
+  expect(get(selectedWorkflowHistorySessionIds)).toEqual([]);
 });
 
 test('blocked/failed requests retain facts and lazy documents, without fabricated revisions or historical lifecycle', async () => {
@@ -184,11 +219,11 @@ test('documents fence rapid ref/workflow changes and closing an in-flight read',
   expect(mocks.getWorkflowDocument.mock.calls[1][2].signal.aborted).toBe(true);
 });
 
-test('missed notifications converge through polling without moving a selected historical request', async () => {
+test('missed notifications converge through polling without moving a selected revision', async () => {
   vi.useFakeTimers();
   mocks.getWorkflow.mockImplementation(async () => snapshot());
   mocks.listWorkflowPatches.mockResolvedValue([patch('historical', { state: 'blocked', replanner_session_id: 'old-session' }), patch()]);
-  visit('?tab=replanning&patch=historical');
+  visit('?revision=3');
   const view = render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   await vi.advanceTimersByTimeAsync(1);
   expect(screen.getByText('Patch historical')).toBeInTheDocument();
@@ -196,15 +231,15 @@ test('missed notifications converge through polling without moving a selected hi
   mocks.getSession.mockResolvedValue({ session_id: 'old-session', state: 'exited' });
   await vi.advanceTimersByTimeAsync(2000);
   expect(screen.getByText('Current v4')).toBeInTheDocument();
-  expect(screen.getByText('No active replanning.')).toBeInTheDocument();
-  expect(screen.getByText('Session now: exited')).toBeInTheDocument();
+  expect(screen.queryByText('Current request')).not.toBeInTheDocument();
+  expect(screen.getAllByText('Session now: exited')).toHaveLength(2);
   expect(screen.getByText('Patch historical')).toBeInTheDocument();
-  expect(window.location.search).toBe('?tab=replanning&patch=historical');
+  expect(window.location.search).toBe('?revision=3');
   view.unmount();
   vi.useRealTimers();
   render(WorkflowDetailPage, { routeWorkflowId: 'wf' });
   expect(await screen.findByText('Patch historical')).toBeInTheDocument();
-  expect(await screen.findByText('Session now: exited')).toBeInTheDocument();
+  expect(await screen.findAllByText('Session now: exited')).toHaveLength(2);
 });
 
 test('visible-page recovery refreshes even terminal workflows and updates selected Session facts', async () => {
