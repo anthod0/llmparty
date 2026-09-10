@@ -102,6 +102,33 @@ async fn ingest_persists_turn_input_and_output_summaries() {
 }
 
 #[tokio::test]
+async fn event_storage_bounds_input_summaries_even_without_http() {
+    let service = service().await;
+    service
+        .ingest_reported_event(event(
+            "evt_bounded_session",
+            EventType::SessionCreated,
+            "sess_bounded",
+            None,
+        ))
+        .await
+        .unwrap();
+    let mut input = event(
+        "evt_bounded_input",
+        EventType::TurnCreated,
+        "sess_bounded",
+        Some("turn_bounded"),
+    );
+    input.payload = json!({ "input": { "summary": "中😀".repeat(1000) } });
+    service.ingest_reported_event(input).await.unwrap();
+    let events = service.list_events("sess_bounded").await.unwrap();
+    assert_eq!(
+        events.last().unwrap().payload["input"]["summary"],
+        "中😀".repeat(100)
+    );
+}
+
+#[tokio::test]
 async fn session_started_keeps_projection_starting_until_ready() {
     let service = service().await;
 

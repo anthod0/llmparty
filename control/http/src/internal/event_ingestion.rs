@@ -9,7 +9,7 @@ use pontia_application::{
     ReportedFact,
 };
 use pontia_core::{
-    domain::{DomainEvent, EventType, MAX_TURN_OUTPUT_SUMMARY_CHARS},
+    domain::{DomainEvent, EventType, MAX_TURN_INPUT_SUMMARY_CHARS, MAX_TURN_OUTPUT_SUMMARY_CHARS},
     error::Error,
 };
 use serde::{Deserialize, Serialize};
@@ -46,13 +46,51 @@ pub async fn post_event(
     request: Result<Json<InternalEventRequest>, JsonRejection>,
 ) -> Result<Json<InternalEventResponse>, ApiError> {
     let Json(request) = request.map_err(|err| ApiError::invalid_request(err.body_text()))?;
+    let failure_context = (request.fact_type == "turn.started")
+        .then(|| {
+            request
+                .data
+                .get("runtime_instance_id")
+                .and_then(Value::as_str)
+        })
+        .flatten()
+        .map(|runtime| (request.session_id.clone(), runtime.to_string()));
+    let result = ingest_event(&state, request).await;
+    if let Err(error) = &result
+        && error.is_permanent_rejection()
+        && let Some((session_id, runtime_instance_id)) = failure_context
+        && let Err(failure) = EventIngestService::new(state.db())
+            .with_agent_events(state.agent_events())
+            .report_turn_start_failure(&session_id, &runtime_instance_id, "event_rejected")
+            .await
+    {
+        tracing::warn!(%session_id, %failure, "could not record turn start reporting failure");
+    }
+    result
+}
+
+async fn ingest_event(
+    state: &AppState,
+    request: InternalEventRequest,
+) -> Result<Json<InternalEventResponse>, ApiError> {
     let fact = request.into_reported_fact()?;
     let mut reported_event = EventReportNormalizer::new(state.db())
         .normalize(fact)
         .await
         .map_err(|error| ApiError::invalid_request(error.to_string()))?;
+    if reported_event.event_type == EventType::TurnStarted {
+        truncate_summary(
+            &mut reported_event.payload,
+            "/input/summary",
+            MAX_TURN_INPUT_SUMMARY_CHARS,
+        );
+    }
     if reported_event.event_type == EventType::TurnOutput {
-        truncate_turn_output(&mut reported_event.payload);
+        truncate_summary(
+            &mut reported_event.payload,
+            "/output/summary",
+            MAX_TURN_OUTPUT_SUMMARY_CHARS,
+        );
     }
     if reported_event.event_type == EventType::SessionContextUsageUpdated {
         validate_context_usage_payload(&reported_event.payload)?;
@@ -127,17 +165,10 @@ fn domain_error_as_invalid_request(error: Error) -> ApiError {
     }
 }
 
-fn truncate_turn_output(payload: &mut Value) {
-    let Some(Value::String(summary)) = payload.pointer_mut("/output/summary") else {
-        return;
-    };
-    if summary.chars().count() <= MAX_TURN_OUTPUT_SUMMARY_CHARS {
-        return;
+fn truncate_summary(payload: &mut Value, pointer: &str, max_chars: usize) {
+    if let Some(Value::String(summary)) = payload.pointer_mut(pointer) {
+        *summary = summary.chars().take(max_chars).collect();
     }
-    *summary = summary
-        .chars()
-        .take(MAX_TURN_OUTPUT_SUMMARY_CHARS)
-        .collect();
 }
 
 fn validate_context_usage_payload(payload: &Value) -> Result<(), ApiError> {

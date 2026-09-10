@@ -36,6 +36,14 @@ describe("event builders", () => {
     }
   });
 
+  test("bounds the input summary without changing the actual Unicode prompt", () => {
+    const input = "中😀".repeat(30_000);
+    const event = buildTurnStartedEvent({ ...context, input });
+    expect(event.data.input_summary).toBe("中😀".repeat(100));
+    expect(input.length).toBe(90_000);
+    expect(buildTurnStartedEvent(context).data.input_summary).toBeUndefined();
+  });
+
   test("builds turn output and terminal observations using the canonical turn id", () => {
     expect(buildTurnOutputEvent(context, "hello")).toEqual({
       session_id: "sess_1",
@@ -213,6 +221,62 @@ describe("EventReporter", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(event),
     });
+  });
+
+  test.each([
+    ["rejection", "event_rejected"],
+    ["network", "transport_failed"],
+    ["missing identity", "missing_turn_id"],
+  ])("reports %s of turn.started as an orchestration failure", async (failure, reason) => {
+    const requests: { url: string; body: any }[] = [];
+    const fetch = vi.fn(async (url: any, init: any) => {
+      requests.push({ url: String(url), body: JSON.parse(init.body) });
+      if (String(url).endsWith("/turn-start-failure")) return new Response('{"accepted":true}');
+      if (failure === "network") throw new Error("connection lost");
+      return failure === "rejection"
+        ? new Response("input contains private task text", { status: 400 })
+        : new Response('{"accepted":true}');
+    });
+    const reporter = new EventReporter({ fetch, logFile: await tempLogFile() });
+    expect(await reporter.report(context, buildTurnStartedEvent(context))).toEqual({ accepted: false });
+    expect(requests[1]).toEqual({
+      url: "http://127.0.0.1:8080/internal/v1/sessions/sess_1/turn-start-failure",
+      body: { runtime_instance_id: "rtinst_1", reason },
+    });
+    expect(requests).toHaveLength(2);
+  });
+
+  test("retries the idempotent failure notification, not an ambiguous turn.started", async () => {
+    let starts = 0;
+    let failures = 0;
+    const fetch = vi.fn(async (url: any) => {
+      if (String(url).endsWith("/events")) {
+        starts++;
+        throw new Error("response lost");
+      }
+      failures++;
+      return failures < 3 ? new Response("unavailable", { status: 503 }) : new Response('{"accepted":true}');
+    });
+    const reporter = new EventReporter({ fetch, logFile: await tempLogFile() });
+    expect(await reporter.report(context, buildTurnStartedEvent(context))).toEqual({ accepted: false });
+    expect(starts).toBe(1);
+    expect(failures).toBe(3);
+  });
+
+  test("bounds failure-notification retries and reports unconfirmed state when offline", async () => {
+    const logFile = await tempLogFile();
+    const fetch = vi.fn(async () => { throw new Error("offline"); });
+    const reporter = new EventReporter({ fetch, logFile });
+    expect(await reporter.report(context, buildTurnStartedEvent(context))).toEqual({ accepted: false });
+    expect(fetch).toHaveBeenCalledTimes(4); // One start, three failure notifications.
+    expect(await readFile(logFile, "utf8")).toContain("turn_start_failure_report_failed");
+  });
+
+  test("does not retry a failure notification rejected by the runtime fence", async () => {
+    const fetch = vi.fn(async () => new Response("stale", { status: 409 }));
+    const reporter = new EventReporter({ fetch, logFile: await tempLogFile() });
+    expect(await reporter.report(context, buildTurnStartedEvent(context))).toEqual({ accepted: false });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   test("logs non-2xx POST failures and returns false", async () => {

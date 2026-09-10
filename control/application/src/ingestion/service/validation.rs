@@ -47,7 +47,10 @@ pub(super) async fn ensure_runtime_fence_in_tx(
     let expected_runtime_instance_id =
         SqliteRuntimeBindingRepository::runtime_instance_id_in_tx(tx, &event.session_id).await?;
     let Some(expected_runtime_instance_id) = expected_runtime_instance_id else {
-        if event.event_type == EventType::SessionReady {
+        if matches!(
+            event.event_type,
+            EventType::SessionReady | EventType::SessionError
+        ) {
             return Err(Error::Domain(format!(
                 "{} from {} requires a confirmed Runtime binding for session {}",
                 event.event_type, event.source, event.session_id
@@ -197,7 +200,10 @@ fn is_confirmed_runtime_source(source: EventSource) -> bool {
 fn runtime_instance_id_required_for_event(event_type: EventType) -> bool {
     matches!(
         event_type,
-        EventType::SessionReady | EventType::SessionExited | EventType::TurnStarted
+        EventType::SessionReady
+            | EventType::SessionExited
+            | EventType::SessionError
+            | EventType::TurnStarted
     )
 }
 

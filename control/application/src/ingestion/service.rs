@@ -1,14 +1,15 @@
 mod effects;
 mod enrichment;
 mod persistence;
+mod reporting_failure;
 mod validation;
 
 use sqlx::SqlitePool;
 
 use pontia_core::{
     domain::{
-        DomainEvent, EventType, ProjectionState, ReportedEvent, SessionProjection, SessionState,
-        TurnProjection, TurnTopology,
+        DomainEvent, EventType, MAX_TURN_INPUT_SUMMARY_CHARS, ProjectionState, ReportedEvent,
+        SessionProjection, SessionState, TurnProjection, TurnTopology,
     },
     error::{Error, Result},
 };
@@ -152,6 +153,16 @@ impl EventIngestService {
         enforce_runtime_fence: bool,
         expected_session_state: Option<SessionState>,
     ) -> Result<Option<EventIngestResult>> {
+        // Bound durable input at the shared ingestion boundary, including
+        // Pontia-owned and in-process events that do not pass through HTTP.
+        if event.event_type.is_turn_event() {
+            for pointer in ["/input/summary", "/input_summary"] {
+                if let Some(serde_json::Value::String(summary)) = event.payload.pointer_mut(pointer)
+                {
+                    *summary = summary.chars().take(MAX_TURN_INPUT_SUMMARY_CHARS).collect();
+                }
+            }
+        }
         if event.event_type.is_turn_event() && event.turn_id.is_none() {
             return Err(Error::Domain(format!(
                 "{} must carry turn_id",
@@ -204,6 +215,22 @@ impl EventIngestService {
             if enforce_runtime_fence {
                 ensure_runtime_fence_in_tx(&mut tx, &event).await?;
             }
+        }
+        if let Some(event_id) =
+            reporting_failure::existing_reporting_failure_in_tx(&mut tx, &event).await?
+        {
+            let state_version =
+                SqliteEventRepository::session_event_count_in_tx(&mut tx, &event.session_id)
+                    .await?;
+            tx.commit().await?;
+            return Ok(Some(EventIngestResult {
+                accepted: true,
+                duplicate: true,
+                event_id,
+                session_id: event.session_id,
+                turn_id: None,
+                state_version,
+            }));
         }
         validate_turn_identity_in_tx(&mut tx, &event, enforce_runtime_fence).await?;
         let sessions =

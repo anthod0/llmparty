@@ -147,6 +147,24 @@ impl SqliteEventRepository {
             != 0)
     }
 
+    pub async fn turn_start_reporting_failure_in_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        session_id: &str,
+        runtime_instance_id: &str,
+    ) -> Result<Option<String>> {
+        Ok(sqlx::query_scalar(
+            r#"SELECT event_id FROM events
+               WHERE session_id = ? AND event_type = 'session.error' AND source = 'runtime_manager'
+                 AND json_extract(payload, '$.reason') = 'turn_start_reporting_failed'
+                 AND json_extract(payload, '$.runtime_instance_id') = ?
+               ORDER BY rowid LIMIT 1"#,
+        )
+        .bind(session_id)
+        .bind(runtime_instance_id)
+        .fetch_optional(&mut **tx)
+        .await?)
+    }
+
     pub async fn latest_workflow_terminal_event(
         &self,
         session_id: &str,

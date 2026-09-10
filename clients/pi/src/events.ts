@@ -1,6 +1,7 @@
 import type { TurnContext } from "./context.js";
 import type { SessionContext } from "./session.js";
 
+const MAX_TURN_INPUT_CHARS = 200;
 const MAX_TURN_OUTPUT_CHARS = 200;
 
 export type InternalEventType = "session.ready" | "session.exited" | "session.message_updated" | "session.context_usage_updated" | "turn.started" | "turn.output" | "turn.completed" | "turn.failed" | "turn.interrupted";
@@ -264,7 +265,7 @@ export function buildTurnStartedEvent(
 ): InternalEvent {
   const data: Record<string, unknown> = {
     runtime_instance_id: context.runtimeInstanceId,
-    input_summary: context.input,
+    input_summary: context.input === undefined ? undefined : Array.from(context.input).slice(0, MAX_TURN_INPUT_CHARS).join(""),
     previous_leaf_id: previousLeafId,
   };
   if (context.inboxMessageId) data.inbox_message_id = context.inboxMessageId;

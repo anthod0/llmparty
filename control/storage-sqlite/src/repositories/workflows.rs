@@ -100,6 +100,8 @@ struct RunningWorkflowTransition<'a> {
     payload: &'a str,
 }
 
+mod reporting_failure;
+
 impl SqliteWorkflowRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
@@ -461,6 +463,11 @@ impl SqliteWorkflowRepository {
                    submitted_runtime_instance_id = ?
                WHERE node_id = ?
                  AND submitted_at IS NULL
+                 AND NOT EXISTS (
+                     SELECT 1 FROM sessions
+                     WHERE sessions.session_id = workflow_nodes.session_id
+                       AND sessions.state = 'error'
+                 )
                  AND EXISTS (
                      SELECT 1 FROM workflows
                      WHERE workflows.workflow_id = workflow_nodes.workflow_id
@@ -476,7 +483,7 @@ impl SqliteWorkflowRepository {
         .await?;
         if result.rows_affected() != 1 {
             return Err(Error::StateConflict(format!(
-                "workflow node {node_id} must be unsubmitted in a running workflow"
+                "workflow node {node_id} must be unsubmitted in a running workflow without a Session error"
             )));
         }
         let (workflow_id, session_id, turn_id) = context.ok_or_else(|| {

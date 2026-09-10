@@ -212,6 +212,26 @@ impl WorkflowQueryService {
         }
     }
 
+    async fn failure_index(
+        &self,
+        workflow: &WorkflowRow,
+        nodes: &[WorkflowNodeRow],
+    ) -> Result<Option<usize>> {
+        if workflow.state != "failed" {
+            return Ok(None);
+        }
+        let failed_node_id = self
+            .workflows
+            .failure_node_id(&workflow.workflow_id)
+            .await?;
+        Ok(Some(
+            failed_node_id
+                .and_then(|node_id| nodes.iter().position(|node| node.node_id == node_id))
+                .or_else(|| nodes.iter().position(|node| node.submitted_at.is_none()))
+                .unwrap_or_else(|| nodes.len().saturating_sub(1)),
+        ))
+    }
+
     pub async fn list_workflows(&self, limit: u32) -> Result<Vec<WorkflowListItemView>> {
         let workflows = self.workflows.list_workflows(limit).await?;
         let mut views = Vec::with_capacity(workflows.len());
@@ -224,7 +244,10 @@ impl WorkflowQueryService {
             let total = nodes.len();
             match ordered_nodes(&workflow.workflow_id, nodes) {
                 Ok(nodes) => {
-                    let current = current_node(&nodes);
+                    let failed_index = self.failure_index(&workflow, &nodes).await?;
+                    let current = failed_index
+                        .and_then(|index| nodes.get(index))
+                        .or_else(|| current_node(&nodes));
                     views.push(list_item(
                         workflow,
                         submitted,
@@ -251,8 +274,11 @@ impl WorkflowQueryService {
             return Ok(None);
         };
         let nodes = ordered_nodes(workflow_id, self.workflows.list_nodes(workflow_id).await?)?;
-        let current_node_id = current_node(&nodes).map(|node| node.node_id.clone());
-        let failure_index = failure_index(&workflow, &nodes);
+        let failure_index = self.failure_index(&workflow, &nodes).await?;
+        let current_node_id = failure_index
+            .and_then(|index| nodes.get(index))
+            .or_else(|| current_node(&nodes))
+            .map(|node| node.node_id.clone());
         let mut views = Vec::with_capacity(nodes.len());
         for (index, node) in nodes.iter().enumerate() {
             let session = match node.session_id.as_deref() {
@@ -793,15 +819,6 @@ fn current_node(nodes: &[WorkflowNodeRow]) -> Option<&WorkflowNodeRow> {
         .iter()
         .find(|node| node.submitted_at.is_none())
         .or_else(|| nodes.last())
-}
-
-fn failure_index(workflow: &WorkflowRow, nodes: &[WorkflowNodeRow]) -> Option<usize> {
-    (workflow.state == "failed").then(|| {
-        nodes
-            .iter()
-            .position(|node| node.submitted_at.is_none())
-            .unwrap_or_else(|| nodes.len().saturating_sub(1))
-    })
 }
 
 fn derive_status(

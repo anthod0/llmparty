@@ -9,7 +9,7 @@ use crate::error::Error;
 mod session;
 mod turn;
 
-pub const MAX_TURN_INPUT_SUMMARY_CHARS: usize = 1_000;
+pub const MAX_TURN_INPUT_SUMMARY_CHARS: usize = 200;
 pub const MAX_TURN_OUTPUT_SUMMARY_CHARS: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,10 +109,19 @@ impl ProjectionState {
             EventType::SessionStarted => self.apply_session(event, SessionState::Starting),
             EventType::SessionReady => self.apply_session(event, SessionState::Idle),
             EventType::SessionExited => {
-                self.abandon_active_turn_for_session_exit(event)?;
+                self.abandon_active_turn_for_terminal_session(
+                    event,
+                    "session_exited_without_terminal_fact",
+                )?;
                 self.apply_session(event, SessionState::Exited)
             }
-            EventType::SessionError => self.apply_session(event, SessionState::Error),
+            EventType::SessionError => {
+                self.abandon_active_turn_for_terminal_session(
+                    event,
+                    "session_error_without_terminal_fact",
+                )?;
+                self.apply_session(event, SessionState::Error)
+            }
             EventType::SessionTitleUpdated => self.apply_session(
                 event,
                 self.sessions

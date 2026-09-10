@@ -234,6 +234,13 @@ where
         let Some(session_id) = node.session_id.as_deref() else {
             return Ok(());
         };
+        if self
+            .repository
+            .fail_for_turn_start_reporting(workflow_id, &node.node_id, &Uuid::now_v7().to_string())
+            .await?
+        {
+            return Ok(());
+        }
         let Some(event) = self
             .persisted_events
             .latest_workflow_terminal_event(session_id, None, None)

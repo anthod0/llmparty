@@ -14,6 +14,10 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    pub(super) fn is_permanent_rejection(&self) -> bool {
+        self.status.is_client_error() && self.status != StatusCode::TOO_MANY_REQUESTS
+    }
+
     pub(crate) fn invalid_request(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,

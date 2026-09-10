@@ -10,9 +10,10 @@ use crate::{
 };
 
 impl ProjectionState {
-    pub(super) fn abandon_active_turn_for_session_exit(
+    pub(super) fn abandon_active_turn_for_terminal_session(
         &mut self,
         event: &DomainEvent,
+        reason: &str,
     ) -> Result<()> {
         let Some(turn_id) = self.active_turn_id(&event.session_id)?.map(str::to_string) else {
             return Ok(());
@@ -32,7 +33,7 @@ impl ProjectionState {
                 json!({
                     "event_id": event.event_id,
                     "event_type": event.event_type.to_string(),
-                    "reason": "session_exited_without_terminal_fact",
+                    "reason": reason,
                     "source": "pontia_projection",
                 }),
             );
